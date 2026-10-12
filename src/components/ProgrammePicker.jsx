@@ -3,10 +3,9 @@ import { normalize } from '../search/normalize';
 import { programmeLevel } from '../labels';
 import './ProgrammePicker.css';
 
-const fitsLevel = (s, levels) => {
-  const level = programmeLevel(s.path[0]);
-  return !levels.length || level == null || levels.includes(level);
-};
+// With a level chosen, only programmes of that level (by name) are offered; cross-level collections
+// like Science in Perspective or "General Courses" only appear when no level is chosen.
+const fitsLevel = (s, levels) => !levels.length || levels.includes(programmeLevel(s.path[0]));
 
 // VVZ's Studiengang / Bereich / Unterbereich names; deeper levels keep the last one.
 const DEPTH_LABELS = ['Programme', 'Area', 'Sub-area'];

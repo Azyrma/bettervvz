@@ -200,6 +200,10 @@ const SORTS = {
  * in catalogue order, each carrying `group` (section id) and `linkType` (O, W, W+, …).
  * text: { [unitId]: normalized catalogue data }, needed for `desc` (query words may match it) and `cat`.
  * `cat` is VVZ's separate "Katalogdaten" field: all its words must appear in the catalogue data.
+ * Multi-select filters (FACETS and days) narrow like stacked VVZ filters: a course must match every
+ * ticked value. Their option counts come from the current results, so every tick only narrows further.
+ * Single-choice filters (prog, credits, rating, toggles) count against all *other* filters, so the
+ * alternatives you could switch to stay visible.
  */
 export function search(index, p, text = null) {
   const t0 = performance.now();
@@ -209,6 +213,7 @@ export function search(index, p, text = null) {
   const sets = Object.fromEntries(Object.keys(FACETS).map(k => [k, new Set(p[k] ?? [])]));
   const days = new Set(p.days ?? []);
   const timed = index.timed > 0 && (days.size || p.from || p.to);
+  const inWindow = ([, start, end]) => (!p.from || start >= p.from) && (!p.to || end <= p.to);
   const room = p.room ? ` ${normalize(p.room)}` : '';
   // Lecturer filter: every word must match a lecturer name (typos allowed), not just a title word.
   const lect = words(p.lect).map(w => wordScores(index, w));
@@ -228,10 +233,16 @@ export function search(index, p, text = null) {
     if (hasQuery && !(score = textScore(d, query, p.desc ? text : null))) fail |= BIT.text;
     if (cat.length && !cat.every(w => text[u.id]?.includes(w))) fail |= BIT.cat;
     if (prog && !d.secs.some(id => prog.has(id))) fail |= BIT.prog;
-    for (const k in FACETS) if (sets[k].size && !FACETS[k](d).some(v => sets[k].has(v))) fail |= BIT[k];
+    for (const k in FACETS) {
+      if (sets[k].size) {
+        const values = FACETS[k](d);
+        for (const v of sets[k]) if (!values.includes(v)) fail |= BIT[k];
+      }
+    }
     if ((p.cmin != null && !(u.c >= p.cmin)) || (p.cmax != null && !(u.c <= p.cmax))) fail |= BIT.credits;
-    if (timed && !u.ts?.some(([wd, start, end]) =>
-      (!days.size || days.has(wd)) && (!p.from || start >= p.from) && (!p.to || end <= p.to))) fail |= BIT.time;
+    if (timed && !(days.size
+      ? [...days].every(wd => u.ts?.some(slot => slot[0] === wd && inWindow(slot)))
+      : u.ts?.some(inWindow))) fail |= BIT.time;
     if (room.length > 1 && !d.rooms.some(r => r.includes(room))) fail |= BIT.room;
     if (lect.length && !lect.every(s => d.lec.some(id => s[id] >= 0.5))) fail |= BIT.lect;
     if (p.open && u.rs) fail |= BIT.open;
@@ -239,11 +250,7 @@ export function search(index, p, text = null) {
     if (p.rmin && !(d.rating >= p.rmin)) fail |= BIT.rating;
 
     if (!fail) results.push({ d, score });
-    // Every filter's options are counted against all the *other* filters, so each filter narrows the rest
-    // (Bachelor → only programmes with Bachelor courses), while picking one department still shows the others.
-    for (const k in FACETS) {
-      if ((fail & ~BIT[k]) === 0) for (const v of FACETS[k](d)) facets[k][v] = (facets[k][v] ?? 0) + 1;
-    }
+    if (!fail) for (const k in FACETS) for (const v of FACETS[k](d)) facets[k][v] = (facets[k][v] ?? 0) + 1;
     if ((fail & ~BIT.prog) === 0) {
       // Count the course once per section and ancestor, even when it is linked in several branches.
       for (const id of d.secs) {
@@ -254,9 +261,8 @@ export function search(index, p, text = null) {
       }
     }
     if ((fail & ~BIT.credits) === 0 && u.c != null) facets.credits[u.c] = (facets.credits[u.c] ?? 0) + 1;
-    if ((fail & ~BIT.time) === 0 && index.timed > 0 && u.ts) {
-      const wds = new Set(u.ts.filter(([, start, end]) => (!p.from || start >= p.from) && (!p.to || end <= p.to)).map(([wd]) => wd));
-      for (const wd of wds) facets.days[wd] = (facets.days[wd] ?? 0) + 1;
+    if (!fail && index.timed > 0 && u.ts) {
+      for (const wd of new Set(u.ts.filter(inWindow).map(([wd]) => wd))) facets.days[wd] = (facets.days[wd] ?? 0) + 1;
     }
     if ((fail & ~BIT.open) === 0 && !u.rs) facets.open++;
     if ((fail & ~BIT.occurs) === 0 && !u.oc) facets.occurs++;

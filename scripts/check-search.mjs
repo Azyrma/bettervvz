@@ -22,7 +22,10 @@ assert.ok(!top('analysis', { limit: 200 }).some(t => /catalysis/i.test(t)), 'no 
 
 const filtered = search(index, { dep: [5], lvl: ['BSC'], limit: 10000 });
 assert.ok(filtered.total > 0 && filtered.items.every(u => u.dp.includes(5) && u.lv.includes('BSC')), 'facet filters');
-assert.ok(filtered.facets.dep[1] > 0, 'facet counts ignore own selection');
+// Ticking more values in one filter narrows: counts are exact for the stacked selection.
+assert.equal(filtered.facets.dep[8], search(index, { dep: [5, 8], lvl: ['BSC'] }).total, 'department counts with a department ticked');
+assert.equal(filtered.facets.dep[5], filtered.total, 'ticked option count equals the results');
+assert.ok(search(index, { dep: [5, 8], limit: 10000 }).items.every(u => u.dp.includes(5) && u.dp.includes(8)), 'ticked values stack');
 const ects = search(index, { cmin: 8, cmax: 10, limit: 10000 });
 assert.ok(ects.items.every(u => u.c >= 8 && u.c <= 10), 'credit range');
 
@@ -61,6 +64,7 @@ assert.ok(!Object.keys(search(index, { dep: [5] }).facets.prog).map(Number).some
 const fs26 = buildIndex(JSON.parse(fs.readFileSync('public/data/2026S.json', 'utf8')));
 const dayCounts = search(fs26, { dep: [5], from: '10:00' }).facets.days;
 assert.equal(dayCounts[0], search(fs26, { dep: [5], from: '10:00', days: [0] }).total, 'weekday counts respect the time window');
+assert.equal(search(fs26, { dep: [5], days: [0] }).facets.days[2], search(fs26, { dep: [5], days: [0, 2] }).total, 'weekday counts with a day ticked');
 
 const withText = search(index, { q: 'reinforcement', desc: true, limit: 10000 }, text).total;
 assert.ok(withText > search(index, { q: 'reinforcement', limit: 10000 }).total, 'description search widens results');
