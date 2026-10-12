@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { getCourseSchedule } from '../api/vvz';
 import './Timetable.css';
@@ -70,6 +70,7 @@ function Timetable({ timetableCourses = [] }) {
   // Drag-to-select state
   const [drag, setDrag] = useState(null);     // { startDay, startSlot, endDay, endSlot }
   const [popup, setPopup] = useState(null);   // { startDay, endDay, startSlot, endSlot, x, y }
+  const [selRect, setSelRect] = useState(null); // pixel rect of drag/popup selection, measured in handlers
   const dragRef = useRef(null);               // mirrors drag for document-level handlers
   const colRefs = useRef([]);                 // DOM refs for each day column
   const gridRef = useRef(null);               // DOM ref for the grid container
@@ -111,6 +112,7 @@ function Timetable({ timetableCourses = [] }) {
     function onMouseDown(e) {
       if (popupRef.current && !popupRef.current.contains(e.target)) {
         setPopup(null);
+        setSelRect(null);
       }
     }
     document.addEventListener('mousedown', onMouseDown);
@@ -125,6 +127,7 @@ function Timetable({ timetableCourses = [] }) {
     const d = { startDay: di, startSlot: slot, endDay: di, endSlot: slot };
     dragRef.current = d;
     setDrag(d);
+    setSelRect(measureSelection(d));
     setPopup(null);
   }
 
@@ -134,16 +137,17 @@ function Timetable({ timetableCourses = [] }) {
     const d = { ...dragRef.current, endDay: di, endSlot: slot };
     dragRef.current = d;
     setDrag(d);
+    setSelRect(measureSelection(d));
   }
 
-  // Compute a single pixel rect for the merged selection overlay (persists via popup)
-  const selSource = drag ?? popup;
-  const selRect = useMemo(() => {
-    if (!selSource || !gridRef.current) return null;
-    const minDay  = Math.min(selSource.startDay,  selSource.endDay);
-    const maxDay  = Math.max(selSource.startDay,  selSource.endDay);
-    const minSlot = Math.min(selSource.startSlot, selSource.endSlot);
-    const maxSlot = Math.max(selSource.startSlot, selSource.endSlot);
+  // Compute a single pixel rect for the merged selection overlay (persists via popup).
+  // Called from event handlers only: it reads DOM refs, which must not happen during render.
+  function measureSelection(sel) {
+    if (!sel || !gridRef.current) return null;
+    const minDay  = Math.min(sel.startDay,  sel.endDay);
+    const maxDay  = Math.max(sel.startDay,  sel.endDay);
+    const minSlot = Math.min(sel.startSlot, sel.endSlot);
+    const maxSlot = Math.max(sel.startSlot, sel.endSlot);
     const startCol = colRefs.current[minDay];
     const endCol   = colRefs.current[maxDay];
     if (!startCol || !endCol) return null;
@@ -157,7 +161,7 @@ function Timetable({ timetableCourses = [] }) {
       width:  endColRect.right  - startColRect.left,
       height: (maxSlot - minSlot + 1) * halfSlotPx,
     };
-  }, [selSource]);
+  }
 
   function formatRoom(ts) {
     return [ts.building, ts.floor, ts.room].filter(Boolean).join(' ');
