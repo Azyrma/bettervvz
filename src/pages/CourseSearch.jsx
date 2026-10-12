@@ -365,8 +365,10 @@ function CourseSearch() {
   const semCount = metaReady ? meta.total : null;
   const selectedSection = sections?.find(s => s.id === p.prog);
   const sectionName = selectedSection?.name;
-  // The reverse of Level → Programme: a Bachelor programme only offers the Bachelor level.
+  // The reverse of Level/Department → Programme: a Bachelor programme only offers the Bachelor level,
+  // a D-INFK programme only D-INFK.
   const progLevel = selectedSection ? programmeLevel(selectedSection.path[0]) : null;
+  const progDeps = selectedSection?.dp ?? null;
 
   const active = [
     p.prog != null && { label: sectionName ?? 'Programme', clear: { prog: null } },
@@ -423,14 +425,16 @@ function CourseSearch() {
       <details className="filter-group" open>
         <summary>Programme</summary>
         {sections ? (
-          <ProgrammePicker sections={sections} value={p.prog} levels={p.lvl} counts={facets?.prog} onChange={id => update({ prog: id })} />
+          <ProgrammePicker sections={sections} value={p.prog} levels={p.lvl} departments={p.dep} counts={facets?.prog} onChange={id => update({ prog: id })} />
         ) : <p className="filter-note">Loading sections…</p>}
       </details>
 
       <details className="filter-group" open>
         <summary>Department</summary>
         <CheckList
-          options={Object.entries(DEPARTMENTS).map(([id, [short, name]]) => [Number(id), short, name])}
+          options={Object.entries(DEPARTMENTS)
+            .filter(([id]) => !progDeps || progDeps.includes(Number(id)) || p.dep.includes(Number(id)))
+            .map(([id, [short, name]]) => [Number(id), short, name])}
           selected={p.dep}
           counts={facets?.dep}
           onToggle={v => toggle('dep', v)}

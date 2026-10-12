@@ -1,7 +1,7 @@
 // Sanity check for the search engine against a real semester index: node scripts/check-search.mjs
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { buildIndex, search } from '../src/search/engine.js';
+import { buildIndex, search, sectionList } from '../src/search/engine.js';
 
 const semkez = '2026W';
 const index = buildIndex(JSON.parse(fs.readFileSync(`public/data/${semkez}.json`, 'utf8')));
@@ -65,6 +65,12 @@ const fs26 = buildIndex(JSON.parse(fs.readFileSync('public/data/2026S.json', 'ut
 const dayCounts = search(fs26, { dep: [5], from: '10:00' }).facets.days;
 assert.equal(dayCounts[0], search(fs26, { dep: [5], from: '10:00', days: [0] }).total, 'weekday counts respect the time window');
 assert.equal(search(fs26, { dep: [5], days: [0] }).facets.days[2], search(fs26, { dep: [5], days: [0, 2] }).total, 'weekday counts with a day ticked');
+
+const owners = Object.fromEntries(sectionList(index).filter(s => !index.secById.has(s.parent)).map(s => [s.name, s.dp]));
+assert.deepEqual(owners['Computer Science Bachelor'], [5], 'CS Bachelor belongs to D-INFK');
+assert.deepEqual(owners['Data Science Master'], [5, 8, 18], 'joint programme keeps all its departments');
+assert.deepEqual(owners['Doctorate Earth and Planetary Sciences'], [13], 'D-ERDW doctorate is not D-INFK');
+assert.equal(owners['Project Mobility'], null, 'all-department programme is cross-department');
 
 const withText = search(index, { q: 'reinforcement', desc: true, limit: 10000 }, text).total;
 assert.ok(withText > search(index, { q: 'reinforcement', limit: 10000 }).total, 'description search widens results');

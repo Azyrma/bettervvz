@@ -100,11 +100,31 @@ export function buildIndex({ semkez, units, sections }) {
   };
 }
 
+// Departments owning a programme: those attached to (nearly) every one of its courses, since vvzapi has
+// no department per section. Programmes shared by more than three departments (Project Mobility, teaching
+// diplomas) count as cross-department and get null, like cross-level collections for the Level filter.
+function ownerDepartments(index, root) {
+  const counts = {};
+  for (const id of root.units) for (const d of index.byId.get(id).dp) counts[d] = (counts[d] ?? 0) + 1;
+  const owners = Object.keys(counts).filter(d => counts[d] >= 0.95 * root.units.size).map(Number);
+  return owners.length && owners.length <= 3 ? owners : null;
+}
+
 // Section list for the programme picker: only sections that actually contain courses.
+// `dp` is the owning departments of the section's programme (its root section).
 export function sectionList(index) {
+  const owners = new Map();
+  const rootOf = s => {
+    while (index.secById.has(s.parent)) s = index.secById.get(s.parent);
+    return s;
+  };
   return [...index.secById.values()]
     .filter(s => s.units.size)
-    .map(s => ({ id: s.id, parent: s.parent, name: s.name, path: index.pathOf(s.id), count: s.units.size }));
+    .map(s => {
+      const root = rootOf(s);
+      if (!owners.has(root.id)) owners.set(root.id, ownerDepartments(index, root));
+      return { id: s.id, parent: s.parent, name: s.name, path: index.pathOf(s.id), count: s.units.size, dp: owners.get(root.id) };
+    });
 }
 
 export function unitSections(index, u) {

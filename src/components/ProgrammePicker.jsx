@@ -3,16 +3,19 @@ import { normalize } from '../search/normalize';
 import { programmeLevel } from '../labels';
 import './ProgrammePicker.css';
 
-// With a level chosen, only programmes of that level (by name) are offered; cross-level collections
-// like Science in Perspective or "General Courses" only appear when no level is chosen.
-const fitsLevel = (s, levels) => !levels.length || levels.includes(programmeLevel(s.path[0]));
+// With a level chosen, only programmes of that level (by name) are offered; with departments chosen, only
+// programmes those departments own. Cross-level or cross-department collections (Science in Perspective,
+// "General Courses", Project Mobility) only appear while that filter is empty.
+const fits = (s, levels, departments) =>
+  (!levels.length || levels.includes(programmeLevel(s.path[0])))
+  && (!departments.length || (s.dp != null && departments.every(d => s.dp.includes(d))));
 
 // VVZ's Studiengang / Bereich / Unterbereich names; deeper levels keep the last one.
 const DEPTH_LABELS = ['Programme', 'Area', 'Sub-area'];
 
 // Cascading selects down the VVZ section tree (one more per level until a leaf), plus a search across the whole tree.
 // `counts` (section id → matching courses under the other filters) hides sections the current filters leave empty.
-function ProgrammePicker({ sections, value, onChange, levels = [], counts }) {
+function ProgrammePicker({ sections, value, onChange, levels = [], departments = [], counts }) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
 
@@ -36,11 +39,11 @@ function ProgrammePicker({ sections, value, onChange, levels = [], counts }) {
     if (!words.length) return [];
     const n = s => (counts ? counts[s.id] ?? 0 : s.count);
     return haystack
-      .filter(([s, h]) => words.every(w => h.includes(w)) && fitsLevel(s, levels) && n(s) > 0)
+      .filter(([s, h]) => words.every(w => h.includes(w)) && fits(s, levels, departments) && n(s) > 0)
       .map(([s]) => s)
       .sort((a, b) => a.path.length - b.path.length || n(b) - n(a))
       .slice(0, 80);
-  }, [query, haystack, levels, counts]);
+  }, [query, haystack, levels, departments, counts]);
 
   if (value != null && !byId.has(value)) {
     // Section ids are per semester; an unknown id means the semester changed underneath.
@@ -50,7 +53,7 @@ function ProgrammePicker({ sections, value, onChange, levels = [], counts }) {
   const chain = [];
   for (let s = byId.get(value); s; s = byId.get(s.parent)) chain.unshift(s);
   const inChain = s => chain.some(c => c.id === s.id);
-  const roots = (children.get(null) ?? []).filter(s => (fitsLevel(s, levels) && countOf(s) > 0) || inChain(s));
+  const roots = (children.get(null) ?? []).filter(s => (fits(s, levels, departments) && countOf(s) > 0) || inChain(s));
   const levelsShown = [{ options: roots, selected: chain[0]?.id, parent: null }];
   chain.forEach((s, i) => {
     const kids = (children.get(s.id) ?? []).filter(k => countOf(k) > 0 || inChain(k));
