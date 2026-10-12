@@ -1,6 +1,7 @@
 // Typo-tolerant search over one semester index (public/data/<semkez>.json).
 // Runs inside the search worker; scripts/check-search.mjs exercises it in Node.
 import { normalize } from './normalize.js';
+import { RATING_STEPS } from '../labels.js';
 
 const words = s => (s ? normalize(s).split(' ').filter(Boolean) : []);
 
@@ -212,10 +213,15 @@ export function search(index, p, text = null) {
   // Lecturer filter: every word must match a lecturer name (typos allowed), not just a title word.
   const lect = words(p.lect).map(w => wordScores(index, w));
   const cat = text ? words(p.cat) : [];
-  const facets = Object.fromEntries(Object.keys(FACETS).map(k => [k, {}]));
+  const facets = {
+    ...Object.fromEntries(Object.keys(FACETS).map(k => [k, {}])),
+    prog: {}, credits: {}, days: {}, rating: {}, open: 0, occurs: 0,
+  };
+  const counted = new Map(); // section id → index of the last course counted there
   const results = [];
 
-  for (const d of index.docs) {
+  for (let i = 0; i < index.docs.length; i++) {
+    const d = index.docs[i];
     const u = d.u;
     let fail = 0;
     let score = 0;
@@ -233,9 +239,29 @@ export function search(index, p, text = null) {
     if (p.rmin && !(d.rating >= p.rmin)) fail |= BIT.rating;
 
     if (!fail) results.push({ d, score });
-    // Facet counts ignore the facet's own selection, so picking one department still shows the others' counts.
+    // Every filter's options are counted against all the *other* filters, so each filter narrows the rest
+    // (Bachelor → only programmes with Bachelor courses), while picking one department still shows the others.
     for (const k in FACETS) {
       if ((fail & ~BIT[k]) === 0) for (const v of FACETS[k](d)) facets[k][v] = (facets[k][v] ?? 0) + 1;
+    }
+    if ((fail & ~BIT.prog) === 0) {
+      // Count the course once per section and ancestor, even when it is linked in several branches.
+      for (const id of d.secs) {
+        for (let s = index.secById.get(id); s && counted.get(s.id) !== i; s = index.secById.get(s.parent)) {
+          counted.set(s.id, i);
+          facets.prog[s.id] = (facets.prog[s.id] ?? 0) + 1;
+        }
+      }
+    }
+    if ((fail & ~BIT.credits) === 0 && u.c != null) facets.credits[u.c] = (facets.credits[u.c] ?? 0) + 1;
+    if ((fail & ~BIT.time) === 0 && index.timed > 0 && u.ts) {
+      const wds = new Set(u.ts.filter(([, start, end]) => (!p.from || start >= p.from) && (!p.to || end <= p.to)).map(([wd]) => wd));
+      for (const wd of wds) facets.days[wd] = (facets.days[wd] ?? 0) + 1;
+    }
+    if ((fail & ~BIT.open) === 0 && !u.rs) facets.open++;
+    if ((fail & ~BIT.occurs) === 0 && !u.oc) facets.occurs++;
+    if ((fail & ~BIT.rating) === 0 && d.rating != null) {
+      for (const step of RATING_STEPS) if (d.rating >= step) facets.rating[step] = (facets.rating[step] ?? 0) + 1;
     }
   }
 

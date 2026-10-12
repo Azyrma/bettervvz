@@ -3,7 +3,10 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { call, isAdvancedQuery } from '../search/client';
 import { getCourseSchedule, getUnit } from '../api/vvz';
 import ProgrammePicker from '../components/ProgrammePicker';
-import { COURSE_TYPES, DEPARTMENTS, FREQUENCY, LEVELS, OCCURRENCE, SECTION_TYPES, WEEKDAYS, capitalize, semesterLabel, semesterName } from '../labels';
+import {
+  COURSE_TYPES, DEPARTMENTS, FREQUENCY, LEVELS, OCCURRENCE, RATING_STEPS, SECTION_TYPES, WEEKDAYS,
+  capitalize, programmeLevel, semesterLabel, semesterName,
+} from '../labels';
 import './CourseSearch.css';
 
 const PAGE = 50;
@@ -132,10 +135,13 @@ function ResultGroup({ heading, children }) {
   );
 }
 
+// Options with no matching course under the other filters are hidden; selected ones always stay.
+const available = (options, selected, counts) => options.filter(([value]) => !counts || counts[value] || selected.includes(value));
+
 function CheckList({ options, selected, counts, onToggle }) {
   return (
     <ul className="checklist">
-      {options.map(([value, label, hint]) => {
+      {available(options, selected, counts).map(([value, label, hint]) => {
         const n = counts?.[value] ?? 0;
         const on = selected.includes(value);
         return (
@@ -158,7 +164,7 @@ function CheckList({ options, selected, counts, onToggle }) {
 function ChipToggles({ options, selected, counts, onToggle }) {
   return (
     <div className="chips">
-      {options.map(([value, label, title]) => {
+      {available(options, selected, counts).map(([value, label, title]) => {
         const on = selected.includes(value);
         const n = counts?.[value];
         return (
@@ -357,7 +363,10 @@ function CourseSearch() {
   const sections = metaReady ? meta.sections : null;
   const timed = metaReady ? meta.timed : null;
   const semCount = metaReady ? meta.total : null;
-  const sectionName = sections?.find(s => s.id === p.prog)?.name;
+  const selectedSection = sections?.find(s => s.id === p.prog);
+  const sectionName = selectedSection?.name;
+  // The reverse of Level → Programme: a Bachelor programme only offers the Bachelor level.
+  const progLevel = selectedSection ? programmeLevel(selectedSection.path[0]) : null;
 
   const active = [
     p.prog != null && { label: sectionName ?? 'Programme', clear: { prog: null } },
@@ -384,8 +393,16 @@ function CourseSearch() {
   ].filter(Boolean);
   const clearAll = Object.assign({}, ...active.map(a => a.clear));
 
-  const languages = facets ? Object.keys(facets.lang).sort((a, b) => facets.lang[b] - facets.lang[a]) : p.lang;
-  const exams = facets ? Object.keys(facets.exam).sort((a, b) => facets.exam[b] - facets.exam[a]) : p.exam;
+  const byCount = (counts, selected) => [...new Set([...Object.keys(counts).sort((a, b) => counts[b] - counts[a]), ...selected])];
+  const languages = facets ? byCount(facets.lang, p.lang) : p.lang;
+  // Quick ECTS picks: the ten most common values under the other filters (plus the selected one), in order.
+  const creditChips = facets
+    ? [...new Set([
+      ...Object.entries(facets.credits).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([c]) => Number(c)),
+      ...(p.cmin != null && p.cmin === p.cmax ? [p.cmin] : []),
+    ])].sort((a, b) => a - b)
+    : [2, 3, 4, 5, 6, 7, 8, 10];
+  const exams = facets ? byCount(facets.exam, p.exam) : p.exam;
 
   const filterPanel = advanced ? (
     <SyntaxHelp onExample={ex => update({ q: ex })} />
@@ -395,7 +412,7 @@ function CourseSearch() {
         <summary>Level</summary>
         <ChipToggles
           options={Object.entries(LEVELS)
-            .filter(([l]) => facets?.lvl[l] || p.lvl.includes(l))
+            .filter(([l]) => !progLevel || l === progLevel || p.lvl.includes(l))
             .map(([l, name]) => [l, l, name])}
           selected={p.lvl}
           counts={facets?.lvl}
@@ -406,7 +423,7 @@ function CourseSearch() {
       <details className="filter-group" open>
         <summary>Programme</summary>
         {sections ? (
-          <ProgrammePicker sections={sections} value={p.prog} levels={p.lvl} onChange={id => update({ prog: id })} />
+          <ProgrammePicker sections={sections} value={p.prog} levels={p.lvl} counts={facets?.prog} onChange={id => update({ prog: id })} />
         ) : <p className="filter-note">Loading sections…</p>}
       </details>
 
@@ -436,10 +453,11 @@ function CourseSearch() {
           </label>
         </div>
         <div className="chips chips-quick">
-          {[2, 3, 4, 5, 6, 7, 8, 10].map(c => (
+          {creditChips.map(c => (
             <button type="button" key={c} className={`chip${p.cmin === c && p.cmax === c ? ' on' : ''}`}
               onClick={() => update(p.cmin === c && p.cmax === c ? { cmin: null, cmax: null } : { cmin: c, cmax: c })}>
               {c}
+              {facets && <span className="count">{fmt(facets.credits[c] ?? 0)}</span>}
             </button>
           ))}
         </div>
@@ -448,9 +466,7 @@ function CourseSearch() {
       <details className="filter-group" open>
         <summary>Course type</summary>
         <ChipToggles
-          options={Object.entries(COURSE_TYPES)
-            .filter(([t]) => facets?.type[t] || p.type.includes(t))
-            .map(([t, name]) => [t, name, t])}
+          options={Object.entries(COURSE_TYPES).map(([t, name]) => [t, name, t])}
           selected={p.type}
           counts={facets?.type}
           onToggle={v => toggle('type', v)}
@@ -483,7 +499,7 @@ function CourseSearch() {
       <details className="filter-group" open={p.fq.length > 0}>
         <summary>Periodicity</summary>
         <CheckList
-          options={Object.entries(FREQUENCY).filter(([f]) => facets?.fq?.[f] || p.fq.includes(f))}
+          options={Object.entries(FREQUENCY)}
           selected={p.fq}
           counts={facets?.fq}
           onToggle={v => toggle('fq', v)}
@@ -502,12 +518,12 @@ function CourseSearch() {
           </p>
         )}
         <fieldset disabled={timed === 0}>
-          <div className="chips">
-            {WEEKDAYS.slice(0, 6).map((d, i) => (
-              <button type="button" key={d} className={`chip${p.days.includes(i) ? ' on' : ''}`} aria-pressed={p.days.includes(i)}
-                onClick={() => toggle('days', i)}>{d}</button>
-            ))}
-          </div>
+          <ChipToggles
+            options={(timed && facets ? WEEKDAYS : WEEKDAYS.slice(0, 6)).map((d, i) => [i, d])}
+            selected={p.days}
+            counts={timed ? facets?.days : null}
+            onToggle={v => toggle('days', v)}
+          />
           <div className="range">
             <label>
               <span>From</span>
@@ -529,16 +545,20 @@ function CourseSearch() {
         <label className="check">
           <input type="checkbox" checked={p.open} onChange={e => update({ open: e.target.checked })} />
           No registration restriction
+          {facets && <span className="count check-count">{fmt(facets.open)}</span>}
         </label>
         <label className="check">
           <input type="checkbox" checked={p.occurs} onChange={e => update({ occurs: e.target.checked })} />
           Hide courses not taking place
+          {facets && <span className="count check-count">{fmt(facets.occurs)}</span>}
         </label>
         <label className="select-row">
           <span>CourseReview rating</span>
           <select value={p.rmin ?? ''} onChange={e => update({ rmin: e.target.value || null })}>
             <option value="">Any</option>
-            {[3, 3.5, 4, 4.5].map(r => <option key={r} value={r}>★ {r}+</option>)}
+            {RATING_STEPS.filter(r => !facets || facets.rating[r] || p.rmin === r).map(r => (
+              <option key={r} value={r}>★ {r}+{facets ? ` (${fmt(facets.rating[r] ?? 0)})` : ''}</option>
+            ))}
           </select>
         </label>
       </details>

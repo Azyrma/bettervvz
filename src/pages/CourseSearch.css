@@ -89,6 +89,10 @@
   cursor: pointer;
 }
 
+.check-count {
+  margin-left: auto;
+}
+
 .check input,
 .checklist input {
   width: 1rem;

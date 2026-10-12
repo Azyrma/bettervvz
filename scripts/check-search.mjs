@@ -48,6 +48,20 @@ const majors = order.map(g => grouped.groups[g]?.[2]).filter((m, i, a) => m && m
 assert.deepEqual(majors, [...majors].sort((a, b) => a.localeCompare(b)), 'sections in alphabetical (VVZ) order');
 assert.equal(search(index, { prog: csMaster.id, flat: true, limit: 100000 }).items.length, grouped.total, 'flat list has one row per course');
 
+// Each facet count must equal the total you get by picking that option on top of the other filters.
+const base = { q: 'learning', lvl: ['MSC'] };
+const counts = search(index, base).facets;
+const progId = Number(Object.keys(counts.prog).find(id => counts.prog[id] > 2));
+assert.equal(counts.prog[progId], search(index, { ...base, prog: progId, flat: true }).total, 'programme counts');
+assert.equal(counts.dep[5], search(index, { ...base, dep: [5] }).total, 'department counts');
+assert.equal(counts.credits[6], search(index, { ...base, cmin: 6, cmax: 6 }).total, 'credit counts');
+assert.equal(counts.open, search(index, { ...base, open: true }).total, 'open registration count');
+assert.equal(counts.rating[4], search(index, { ...base, rmin: 4 }).total, 'rating counts');
+assert.ok(!Object.keys(search(index, { dep: [5] }).facets.prog).map(Number).some(id => search(index, { dep: [5], prog: id }).total === 0), 'programmes narrowed by department');
+const fs26 = buildIndex(JSON.parse(fs.readFileSync('public/data/2026S.json', 'utf8')));
+const dayCounts = search(fs26, { dep: [5], from: '10:00' }).facets.days;
+assert.equal(dayCounts[0], search(fs26, { dep: [5], from: '10:00', days: [0] }).total, 'weekday counts respect the time window');
+
 const withText = search(index, { q: 'reinforcement', desc: true, limit: 10000 }, text).total;
 assert.ok(withText > search(index, { q: 'reinforcement', limit: 10000 }).total, 'description search widens results');
 

@@ -66,6 +66,23 @@ export const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 export const RATINGS = ['Recommended', 'Engaging', 'Difficulty', 'Effort', 'Resources'];
 
+// Minimum CourseReview averages offered by the rating filter.
+export const RATING_STEPS = [3, 3.5, 4, 4.5];
+
+// Programme level from its name, the way VVZ groups programmes by Stufe. Cross-level sections
+// (General Courses, Science in Perspective, …) match no rule and belong to every level.
+const LEVEL_RULES = [
+  [/Master of Advanced Studies|\bMAS\b|\bEMBA\b/, 'NDS'],
+  [/\bBachelor\b/, 'BSC'],
+  [/\bMaster\b/, 'MSC'],
+  [/Doctora/, 'DR'],
+  [/Teaching Diploma/, 'SHE'],
+  [/Didactic|\bTC\b/, 'DZ'],
+  [/\b(CAS|DAS)\b|Advanced Studies/, 'WBZ'],
+  [/Mobility/, 'GS'],
+];
+export const programmeLevel = name => LEVEL_RULES.find(([re]) => re.test(name))?.[1] ?? null;
+
 export const capitalize = s => (s ? s[0].toUpperCase() + s.slice(1) : s);
 
 // "2026W" → "HS26", "2027S" → "FS27"

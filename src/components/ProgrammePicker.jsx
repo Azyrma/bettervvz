@@ -1,22 +1,10 @@
 import { useMemo, useState } from 'react';
 import { normalize } from '../search/normalize';
+import { programmeLevel } from '../labels';
 import './ProgrammePicker.css';
 
-// Programme level from its name, the way VVZ groups programmes by Stufe. Cross-level sections
-// (General Courses, Science in Perspective, …) match no rule and are listed under every level.
-const LEVEL_RULES = [
-  [/Master of Advanced Studies|\bMAS\b|\bEMBA\b/, 'NDS'],
-  [/\bBachelor\b/, 'BSC'],
-  [/\bMaster\b/, 'MSC'],
-  [/Doctora/, 'DR'],
-  [/Teaching Diploma/, 'SHE'],
-  [/Didactic|\bTC\b/, 'DZ'],
-  [/\b(CAS|DAS)\b|Advanced Studies/, 'WBZ'],
-  [/Mobility/, 'GS'],
-];
-const levelOf = name => LEVEL_RULES.find(([re]) => re.test(name))?.[1] ?? null;
 const fitsLevel = (s, levels) => {
-  const level = levelOf(s.path[0]);
+  const level = programmeLevel(s.path[0]);
   return !levels.length || level == null || levels.includes(level);
 };
 
@@ -24,7 +12,8 @@ const fitsLevel = (s, levels) => {
 const DEPTH_LABELS = ['Programme', 'Area', 'Sub-area'];
 
 // Cascading selects down the VVZ section tree (one more per level until a leaf), plus a search across the whole tree.
-function ProgrammePicker({ sections, value, onChange, levels = [] }) {
+// `counts` (section id → matching courses under the other filters) hides sections the current filters leave empty.
+function ProgrammePicker({ sections, value, onChange, levels = [], counts }) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
 
@@ -41,15 +30,18 @@ function ProgrammePicker({ sections, value, onChange, levels = [] }) {
   }, [sections, byId]);
   const haystack = useMemo(() => sections.map(s => [s, normalize(s.path.join(' '))]), [sections]);
 
+  const countOf = s => (counts ? counts[s.id] ?? 0 : s.count);
+
   const matches = useMemo(() => {
     const words = normalize(query).split(' ').filter(Boolean);
     if (!words.length) return [];
+    const n = s => (counts ? counts[s.id] ?? 0 : s.count);
     return haystack
-      .filter(([s, h]) => words.every(w => h.includes(w)) && fitsLevel(s, levels))
+      .filter(([s, h]) => words.every(w => h.includes(w)) && fitsLevel(s, levels) && n(s) > 0)
       .map(([s]) => s)
-      .sort((a, b) => a.path.length - b.path.length || b.count - a.count)
+      .sort((a, b) => a.path.length - b.path.length || n(b) - n(a))
       .slice(0, 80);
-  }, [query, haystack, levels]);
+  }, [query, haystack, levels, counts]);
 
   if (value != null && !byId.has(value)) {
     // Section ids are per semester; an unknown id means the semester changed underneath.
@@ -58,11 +50,12 @@ function ProgrammePicker({ sections, value, onChange, levels = [] }) {
 
   const chain = [];
   for (let s = byId.get(value); s; s = byId.get(s.parent)) chain.unshift(s);
-  const roots = (children.get(null) ?? []).filter(s => fitsLevel(s, levels) || s.id === chain[0]?.id);
+  const inChain = s => chain.some(c => c.id === s.id);
+  const roots = (children.get(null) ?? []).filter(s => (fitsLevel(s, levels) && countOf(s) > 0) || inChain(s));
   const levelsShown = [{ options: roots, selected: chain[0]?.id, parent: null }];
   chain.forEach((s, i) => {
-    const kids = children.get(s.id);
-    if (kids?.length) levelsShown.push({ options: kids, selected: chain[i + 1]?.id, parent: s.id });
+    const kids = (children.get(s.id) ?? []).filter(k => countOf(k) > 0 || inChain(k));
+    if (kids.length) levelsShown.push({ options: kids, selected: chain[i + 1]?.id, parent: s.id });
   });
 
   const pick = s => {
@@ -95,7 +88,7 @@ function ProgrammePicker({ sections, value, onChange, levels = [] }) {
                 <button type="button" onClick={() => pick(s)}>
                   {s.path.length > 1 && <span className="pp-path">{s.path.slice(0, -1).join(' › ')}</span>}
                   <span className="pp-name">{s.name}</span>
-                  <span className="pp-count">{s.count}</span>
+                  <span className="pp-count">{countOf(s)}</span>
                 </button>
               </li>
             ))}
@@ -108,7 +101,7 @@ function ProgrammePicker({ sections, value, onChange, levels = [] }) {
           <span>{DEPTH_LABELS[Math.min(depth, DEPTH_LABELS.length - 1)]}</span>
           <select value={selected ?? ''} onChange={e => onChange(e.target.value ? Number(e.target.value) : parent)}>
             <option value="">{depth === 0 ? 'All programmes' : 'All'}</option>
-            {options.map(o => <option key={o.id} value={o.id}>{o.name} ({o.count})</option>)}
+            {options.map(o => <option key={o.id} value={o.id}>{o.name} ({countOf(o)})</option>)}
           </select>
         </label>
       ))}
