@@ -188,6 +188,33 @@ function buildSemester(db, semkez) {
   return { index: { semkez, units: list, sections }, text };
 }
 
+// Section id → its path of names, for matching sections across semesters (ids differ per semester).
+function sectionPaths(sections) {
+  const byId = new Map(sections.map(([id, parent, name]) => [id, { parent, name }]));
+  const pathOf = id => {
+    const names = [];
+    for (let s = byId.get(id); s; s = byId.get(s.parent)) names.unshift(s.name);
+    return names.join('\u0000');
+  };
+  return new Map(sections.map(([id]) => [id, pathOf(id)]));
+}
+
+// "Any semester": every course once, as its newest offering plus the semesters it was offered in (sm).
+// Sections are mapped onto the newest semester's tree by path, so the programme filter still works.
+function buildAllSemesters(built) {
+  const newest = built[0];
+  const toNewest = new Map([...sectionPaths(newest.index.sections)].map(([id, path]) => [path, id]));
+  const all = new Map();
+  for (const { semkez, index } of [...built].reverse()) {
+    const paths = sectionPaths(index.sections);
+    for (const u of index.units) {
+      const sec = (u.sec ?? []).map(([id, ...type]) => [toNewest.get(paths.get(id)), ...type]).filter(([id]) => id != null);
+      all.set(u.no, { ...u, sec: sec.length ? sec : undefined, sk: semkez, sm: [semkez, ...(all.get(u.no)?.sm ?? [])] });
+    }
+  }
+  return { semkez: 'all', units: [...all.values()].sort((a, b) => a.no.localeCompare(b.no)), sections: newest.index.sections };
+}
+
 async function main() {
   const { db: dbPath, version } = await ensureDump();
   // Regenerate only when the dump or this builder changed.
@@ -213,14 +240,17 @@ async function main() {
     stale.delete(name);
   };
   const semesters = [];
+  const built = [];
   for (const semkez of semkezs) {
     const { index, text } = buildSemester(db, semkez);
     if (!index.units.length) continue;
+    built.push({ semkez, index });
     write(`${semkez}.json`, index);
     // Catalogue data (abstract, objective, content, literature, …) for full-text search; only fetched when that toggle is on.
     write(`${semkez}.text.json`, text);
     semesters.push({ semkez, count: index.units.length });
   }
+  write('all.json', buildAllSemesters(built));
   write('semesters.json', {
     version,
     build,

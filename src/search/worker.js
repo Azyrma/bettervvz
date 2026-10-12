@@ -35,15 +35,17 @@ const loadText = semkez => once(texts, semkez, () => versioned(`${semkez}.text.j
 
 // Courses vvzapi.ch knows but the local index lacks (e.g. data newer than the last build).
 function fromGroup(no, group, semkez) {
-  const u = group.units.find(x => x.semkez === semkez) ?? group.units[0];
-  return { id: u.id, no, t: u.title_english || u.title, c: u.credits, lv: u.levels ?? [], dp: u.departments ?? [], lg: u.language, ex: u.exam_type };
+  const newest = group.units.reduce((a, b) => (b.semkez > a.semkez ? b : a));
+  const u = group.units.find(x => x.semkez === semkez) ?? newest;
+  return { id: u.id, no, t: u.title_english || u.title, c: u.credits, lv: u.levels ?? [], dp: u.departments ?? [], lg: u.language, ex: u.exam_type, sk: u.semkez };
 }
 
 const LIVE_ORDER = { number: ['number', 'asc'], title: ['title_english', 'asc'], credits: ['credits', 'desc'], rating: ['coursereview', 'desc'] };
 const LIVE_PAGE = 50;
 const FRESH_LIMIT = 20;
 
-const scope = (semkez, q) => `y:${semkez.slice(0, 4)} s:${semkez[4] === 'W' ? 'HS' : 'FS'}${q ? ` (${q})` : ''}`;
+// "all" is the any-semester index: no year/semester restriction on vvzapi.ch either.
+const scope = (semkez, q) => (semkez === 'all' ? q : `y:${semkez.slice(0, 4)} s:${semkez[4] === 'W' ? 'HS' : 'FS'}${q ? ` (${q})` : ''}`);
 
 // ix is null for semesters that only vvzapi.ch knows about.
 function livePage(ix, semkez, scoped, offset, sort, limit = LIVE_PAGE) {
@@ -99,7 +101,9 @@ const handlers = {
   },
 
   async search(p) {
-    const [ix, text] = await Promise.all([load(p.semkez), p.desc || p.cat?.trim() ? loadText(p.semkez) : null]);
+    // Catalogue data exists per semester only; the any-semester index has none.
+    const wantsText = p.semkez !== 'all' && (p.desc || p.cat?.trim());
+    const [ix, text] = await Promise.all([load(p.semkez), wantsText ? loadText(p.semkez) : null]);
     return search(ix, p, text);
   },
 

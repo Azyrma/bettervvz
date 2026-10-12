@@ -51,6 +51,12 @@ assert.equal(search(index, { prog: csMaster.id, flat: true, limit: 100000 }).ite
 const withText = search(index, { q: 'reinforcement', desc: true, limit: 10000 }, text).total;
 assert.ok(withText > search(index, { q: 'reinforcement', limit: 10000 }).total, 'description search widens results');
 
+const any = buildIndex(JSON.parse(fs.readFileSync('public/data/all.json', 'utf8')));
+const intro = search(any, { q: '252-0027-00L' }).items[0];
+assert.ok(intro.sm.length > 1 && intro.sm.includes(semkez) && intro.sk === intro.sm[0], 'any-semester index lists every offering');
+assert.ok(search(any, { q: 'analysis' }).total > search(index, { q: 'analysis' }).total, 'any semester finds more than one semester');
+assert.ok(search(any, { q: 'anlysis' }).items[0].sk >= '2026', 'current courses first among equal matches');
+
 const queries = ['a', 'an', 'ana', 'anal', 'analy', 'analys', 'analysi', 'analysis', 'computer vison', 'hoefler', 'data', 'quantum mech'];
 const t0 = performance.now();
 for (const q of queries) search(index, { q, dep: [5] });

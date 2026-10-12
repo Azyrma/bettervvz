@@ -188,7 +188,8 @@ const SORTS = {
   title: (a, b) => a.d.u.t.localeCompare(b.d.u.t),
   credits: (a, b) => (b.d.u.c ?? -1) - (a.d.u.c ?? -1) || SORTS.number(a, b),
   rating: (a, b) => (b.d.rating ?? -1) - (a.d.rating ?? -1) || SORTS.number(a, b),
-  relevance: (a, b) => b.score - a.score || SORTS.number(a, b),
+  // In the any-semester index (sk = newest offering) equally good matches list current courses first.
+  relevance: (a, b) => b.score - a.score || (b.d.u.sk ?? '').localeCompare(a.d.u.sk ?? '') || SORTS.number(a, b),
 };
 
 /**

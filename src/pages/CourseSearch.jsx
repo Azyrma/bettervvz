@@ -68,13 +68,14 @@ function prefetch(id) {
 }
 
 function ResultRow({ u, semkez, onOpen }) {
+  const sems = u.sm?.map(semesterLabel);
   const rating = u.cr ? avg(u.cr) : null;
   const depList = (u.dp ?? []).map(d => DEPARTMENTS[d]?.[0]).filter(Boolean);
   const deps = depList.length > 3 ? `${depList.slice(0, 3).join(', ')} +${depList.length - 3}` : depList.join(', ');
   return (
     <li>
       <Link
-        to={`/courses/${u.id}?sem=${semkez}`}
+        to={`/courses/${u.id}?sem=${u.sk ?? semkez}`}
         state={{ unit: u }}
         className="result"
         onClick={onOpen}
@@ -101,6 +102,11 @@ function ResultRow({ u, semkez, onOpen }) {
           {deps && <span>{deps}</span>}
           {u.ex && <span>{capitalize(u.ex)}</span>}
           {rating != null && <span className="result-rating" title="CourseReview average">★ {rating.toFixed(1)}</span>}
+          {sems && (
+            <span className="result-sems" title={`Offered in ${sems.join(', ')}`}>
+              {sems.slice(0, 3).join(' · ')}{sems.length > 3 && ` +${sems.length - 3}`}
+            </span>
+          )}
         </span>
         {u.cm && <span className="result-note">{u.cm}</span>}
         {u.lec && <span className="result-lec">{u.lec.join(', ')}</span>}
@@ -231,8 +237,10 @@ function CourseSearch() {
   const inputRef = useRef(null);
 
   const semkez = p.sem ?? manifest?.latest;
+  const anySem = semkez === 'all';
+  const semName = anySem ? 'all semesters' : semkez ? semesterLabel(semkez) : '';
   // Semesters missing from the local index (published on vvzapi.ch since the last build) are searched live.
-  const liveOnly = !!manifest && !manifest.semesters.some(s => s.semkez === semkez && !s.live);
+  const liveOnly = !!manifest && !anySem && !manifest.semesters.some(s => s.semkez === semkez && !s.live);
   const advanced = liveOnly || isAdvancedQuery(p.q);
   const plainQuery = !advanced && p.q.trim().length >= 3;
   const limit = page.key === key ? page.limit : PAGE;
@@ -457,8 +465,9 @@ function CourseSearch() {
 
       <details className="filter-group" open={!!p.cat}>
         <summary>Catalogue data</summary>
+        {anySem && <p className="filter-note">Pick a specific semester to search catalogue data.</p>}
         <input type="search" className="text-filter" placeholder="Words in abstract, content, literature…" value={p.cat}
-          onChange={e => update({ cat: e.target.value })} aria-label="Catalogue data" />
+          disabled={anySem} onChange={e => update({ cat: e.target.value })} aria-label="Catalogue data" />
       </details>
 
       <details className="filter-group" open={p.lang.length > 0}>
@@ -484,11 +493,11 @@ function CourseSearch() {
       <details className="filter-group" open={p.days.length > 0 || !!p.from || !!p.to || !!p.room}>
         <summary>Day, time &amp; place</summary>
         {timed === 0 && (
-          <p className="filter-note">vvzapi.ch has no times or rooms for {semesterLabel(semkez)} yet, so this filter is off.</p>
+          <p className="filter-note">vvzapi.ch has no times or rooms for {semName} yet, so this filter is off.</p>
         )}
         {timed > 0 && timed < semCount / 2 && (
           <p className="filter-note">
-            Only {fmt(timed)} of {fmt(semCount)} courses in {semesterLabel(semkez)} have times or rooms on vvzapi.ch so far;
+            Only {fmt(timed)} of {fmt(semCount)} courses in {semName} have times or rooms on vvzapi.ch so far;
             the others are hidden while this filter is on.
           </p>
         )}
@@ -560,6 +569,7 @@ function CourseSearch() {
               <span className="visually-hidden">Semester</span>
               <select value={semkez ?? ''} onChange={e => update({ sem: e.target.value, prog: null })}>
                 {!manifest && <option value="">…</option>}
+                {manifest && <option value="all">Any semester</option>}
                 {manifest?.semesters.map(s => (
                   <option key={s.semkez} value={s.semkez}>{semesterLabel(s.semkez)} · {semesterName(s.semkez)}</option>
                 ))}
@@ -568,7 +578,7 @@ function CourseSearch() {
           </form>
           <div className="search-options">
             <label className="check">
-              <input type="checkbox" checked={p.desc} disabled={advanced} onChange={e => update({ desc: e.target.checked })} />
+              <input type="checkbox" checked={p.desc && !anySem} disabled={advanced || anySem} onChange={e => update({ desc: e.target.checked })} />
               Also search catalogue data
             </label>
             {p.prog != null && !advanced ? (
@@ -615,7 +625,7 @@ function CourseSearch() {
           <div className="results-bar">
             <p className="results-count">
               {res ? <><b>{fmt(res.total)}</b> {res.total === 1 ? 'course' : 'courses'}</> : 'Loading courses…'}
-              {res && semkez && <> in {semesterLabel(semkez)}</>}
+              {res && semkez && <> in {semName}</>}
               {res?.ms != null && <span className="results-ms"> · {res.advanced ? 'vvzapi.ch ' : ''}{res.ms} ms</span>}
               {freshNow?.checked && <span className="results-ms" title="This search was also run on vvzapi.ch to catch courses newer than the local index"> · checked with vvzapi.ch</span>}
             </p>

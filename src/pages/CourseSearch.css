@@ -665,6 +665,10 @@
   letter-spacing: 0;
 }
 
+.result-sems {
+  font-variant-numeric: tabular-nums;
+}
+
 .result-rating {
   color: var(--bronze);
   font-weight: 600;
