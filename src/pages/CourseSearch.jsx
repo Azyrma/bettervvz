@@ -392,9 +392,21 @@ function CourseSearch() {
   ) : (
     <>
       <details className="filter-group" open>
+        <summary>Level</summary>
+        <ChipToggles
+          options={Object.entries(LEVELS)
+            .filter(([l]) => facets?.lvl[l] || p.lvl.includes(l))
+            .map(([l, name]) => [l, l, name])}
+          selected={p.lvl}
+          counts={facets?.lvl}
+          onToggle={v => toggle('lvl', v)}
+        />
+      </details>
+
+      <details className="filter-group" open>
         <summary>Programme</summary>
         {sections ? (
-          <ProgrammePicker sections={sections} value={p.prog} onChange={id => update({ prog: id })} />
+          <ProgrammePicker sections={sections} value={p.prog} levels={p.lvl} onChange={id => update({ prog: id })} />
         ) : <p className="filter-note">Loading sections…</p>}
       </details>
 
@@ -405,18 +417,6 @@ function CourseSearch() {
           selected={p.dep}
           counts={facets?.dep}
           onToggle={v => toggle('dep', v)}
-        />
-      </details>
-
-      <details className="filter-group" open>
-        <summary>Level</summary>
-        <ChipToggles
-          options={Object.entries(LEVELS)
-            .filter(([l]) => facets?.lvl[l] || p.lvl.includes(l))
-            .map(([l, name]) => [l, l, name])}
-          selected={p.lvl}
-          counts={facets?.lvl}
-          onToggle={v => toggle('lvl', v)}
         />
       </details>
 

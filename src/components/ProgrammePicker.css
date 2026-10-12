@@ -33,8 +33,7 @@
   z-index: 30;
 }
 
-.pp-options button,
-.pp-children button {
+.pp-options button {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   column-gap: 0.75rem;
@@ -47,8 +46,7 @@
   font-size: 0.85rem;
 }
 
-.pp-options button:hover,
-.pp-children button:hover {
+.pp-options button:hover {
   background: var(--blue-10);
 }
 
@@ -81,44 +79,35 @@
   color: var(--muted);
 }
 
-.pp-selected {
+.pp {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.6rem;
 }
 
-.pp-crumbs {
+.pp-level {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.15rem 0.35rem;
-  font-size: 0.85rem;
-}
-
-.pp-crumb {
-  padding: 0;
-  background: none;
-  border: none;
-  color: var(--blue);
-  cursor: pointer;
-  text-align: left;
-}
-
-.pp-crumb:hover {
-  text-decoration: underline;
-}
-
-.pp-crumb::after {
-  content: '›';
-  margin-left: 0.35rem;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.72rem;
   color: var(--muted);
 }
 
-.pp-current {
-  font-weight: 600;
+.pp-level select {
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  font-size: 0.85rem;
+  color: var(--text);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
 }
 
-.pp-clear,
+.pp-level + .pp-level {
+  padding-left: 0.6rem;
+  border-left: 2px solid var(--blue-20);
+}
+
 .pp-reset {
   align-self: flex-start;
   padding: 0;
@@ -128,15 +117,4 @@
   color: var(--muted);
   text-decoration: underline;
   cursor: pointer;
-}
-
-.pp-children {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  border-left: 2px solid var(--blue-20);
-}
-
-.pp-children button {
-  padding: 0.35rem 0.6rem;
 }
