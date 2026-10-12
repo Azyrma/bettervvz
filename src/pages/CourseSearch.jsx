@@ -253,14 +253,20 @@ function CourseSearch() {
   const resKey = `${semkez}|${key}|${limit}`;
   const loading = !res || res.key !== resKey;
 
+  // setSearchParams hands the updater the URL of the last render, so two changes before the next render
+  // (e.g. ECTS min, then max) would drop the first. Build on our own pending URL until the router catches up.
+  const pending = useRef(null);
+  useEffect(() => { pending.current = null; }, [key]);
+
   const update = useCallback(changes => {
     setSp(prev => {
-      const next = new URLSearchParams(prev);
+      const next = new URLSearchParams(pending.current ?? prev);
       for (const [k, v] of Object.entries(changes)) {
         const s = Array.isArray(v) ? v.join(',') : v === true ? '1' : v === false || v == null ? '' : String(v);
         if (s) next.set(k, s);
         else next.delete(k);
       }
+      pending.current = next.toString();
       return next;
     }, { replace: true });
   }, [setSp]);
