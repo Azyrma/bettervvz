@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "WebFetch(domain:vvzapi.ch)",
-      "WebFetch(domain:coursereview.ch)"
-    ]
-  }
-}
