@@ -573,6 +573,7 @@
     'no title credits'
     'no sub credits'
     'no meta credits'
+    'no note credits'
     'no lec credits'
     'no paths credits';
   column-gap: 1.25rem;
@@ -716,6 +717,48 @@
 
 .text-filter:focus {
   border-color: var(--blue);
+}
+
+.result-note {
+  grid-area: note;
+  margin-top: 0.3rem;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.78rem;
+  color: var(--bronze);
+  border-left: 2px solid currentColor;
+  white-space: pre-line;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.link-type {
+  margin-left: 0.4rem;
+  padding: 0 0.3rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-decoration: none;
+  color: var(--blue);
+  background: var(--blue-10);
+  border: 1px solid var(--blue-20);
+}
+
+.result-list .group-head {
+  position: sticky;
+  top: var(--header-h);
+  z-index: 2;
+  margin-top: 1rem;
+  padding: 0.45rem 0.5rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--blue-strong);
+  background: var(--blue-10);
+  border-bottom: 1px solid var(--blue-20);
+}
+
+.result-list .group-head:first-child {
+  margin-top: 0.5rem;
 }
 
 .result-lec {
@@ -867,6 +910,7 @@
       'title title'
       'sub sub'
       'meta meta'
+      'note note'
       'lec lec'
       'paths paths';
     padding: 0.85rem 0.25rem;

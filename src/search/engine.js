@@ -72,6 +72,8 @@ export function buildIndex({ semkez, units, sections }) {
 
   const secById = new Map(sections.map(([id, parent, name]) => [id, { id, parent, name, children: [], units: new Set() }]));
   for (const s of secById.values()) secById.get(s.parent)?.children.push(s.id);
+  // Section ids follow scraping order, not the catalogue; VVZ (and the programme picker) list sections by name.
+  for (const s of secById.values()) s.children.sort((a, b) => secById.get(a).name.localeCompare(secById.get(b).name));
   for (const d of docs) {
     for (const id of d.secs) {
       for (let s = secById.get(id); s; s = secById.get(s.parent)) s.units.add(d.u.id);
@@ -168,15 +170,16 @@ const FACETS = {
   fq: d => (d.u.fq ? [d.u.fq] : []),
 };
 
+// Section ids under `id` mapped to their position in catalogue order (depth-first, children by name).
 function subtree(index, id) {
-  const out = new Set();
-  const stack = [id];
-  while (stack.length) {
-    const s = index.secById.get(stack.pop());
-    if (!s || out.has(s.id)) continue;
-    out.add(s.id);
-    stack.push(...s.children);
-  }
+  const out = new Map();
+  const visit = sid => {
+    const s = index.secById.get(sid);
+    if (!s || out.has(sid)) return;
+    out.set(sid, out.size);
+    s.children.forEach(visit);
+  };
+  visit(id);
   return out;
 }
 
@@ -190,7 +193,9 @@ const SORTS = {
 
 /**
  * p: { q, prog, dep[], lvl[], lang[], type[], exam[], fq[], cmin, cmax, days[], from, to, room, lect, cat,
- *      desc, open, occurs, rmin, structure, sort, limit }
+ *      desc, open, occurs, rmin, structure, flat, sort, limit }
+ * With `prog` set (and not `flat`), results are grouped like VVZ: one row per course and sub-section,
+ * in catalogue order, each carrying `group` (section id) and `linkType` (O, W, W+, …).
  * text: { [unitId]: normalized catalogue data }, needed for `desc` (query words may match it) and `cat`.
  * `cat` is VVZ's separate "Katalogdaten" field: all its words must appear in the catalogue data.
  */
@@ -235,7 +240,26 @@ export function search(index, p, text = null) {
 
   const sort = p.sort && p.sort !== 'relevance' ? p.sort : hasQuery ? 'relevance' : 'number';
   results.sort(SORTS[sort] ?? SORTS.number);
-  const page = results.slice(0, p.limit ?? 50).map(r => r.d.u);
+  const limit = p.limit ?? 50;
+
+  if (prog && !p.flat) {
+    const rows = results.flatMap(r => (r.d.u.sec ?? [])
+      .filter(([id]) => prog.has(id))
+      .map(([id, type]) => ({ r, id, type })));
+    rows.sort((a, b) => prog.get(a.id) - prog.get(b.id)); // stable: keeps the chosen sort within a section
+    const page = rows.slice(0, limit);
+    const depth = index.pathOf(p.prog).length - 1;
+    return {
+      total: results.length,
+      rows: rows.length,
+      items: page.map(({ r, id, type }) => ({ ...r.d.u, group: id, linkType: type })),
+      groups: Object.fromEntries([...new Set(page.map(x => x.id))].map(id => [id, index.pathOf(id).slice(depth)])),
+      facets,
+      ms: Math.round((performance.now() - t0) * 10) / 10,
+    };
+  }
+
+  const page = results.slice(0, limit).map(r => r.d.u);
   return {
     total: results.length,
     // "Show programmes" mirrors VVZ's result view with structural information.

@@ -39,6 +39,15 @@ const catalogue = search(index, { q: 'learning', cat: 'reinforcement', limit: 10
 assert.ok(catalogue.total > 0 && catalogue.items.every(u => text[u.id].includes('reinforcement')), 'catalogue data field');
 assert.ok(catalogue.total < search(index, { q: 'learning', limit: 10000 }).total, 'catalogue data narrows the title search');
 
+const csMaster = [...index.secById.values()].find(s => s.name === 'Computer Science Master' && !index.secById.has(s.parent));
+const grouped = search(index, { prog: csMaster.id, limit: 100000 });
+assert.ok(grouped.rows >= grouped.total && grouped.items.every(u => u.group && grouped.groups[u.group]?.[0] === 'Computer Science Master'), 'grouped by programme structure');
+const order = grouped.items.map(u => u.group).filter((g, i, a) => g !== a[i - 1]);
+assert.equal(order.length, new Set(order).size, 'each section appears as one contiguous block');
+const majors = order.map(g => grouped.groups[g]?.[2]).filter((m, i, a) => m && m !== a[i - 1]);
+assert.deepEqual(majors, [...majors].sort((a, b) => a.localeCompare(b)), 'sections in alphabetical (VVZ) order');
+assert.equal(search(index, { prog: csMaster.id, flat: true, limit: 100000 }).items.length, grouped.total, 'flat list has one row per course');
+
 const withText = search(index, { q: 'reinforcement', desc: true, limit: 10000 }, text).total;
 assert.ok(withText > search(index, { q: 'reinforcement', limit: 10000 }).total, 'description search widens results');
 

@@ -109,6 +109,8 @@ function buildSemester(db, semkez) {
       lg: u.language || null,
       ex: u.exam_type || null,
       ...(u.priority && { rs: 1 }),
+      // VVZ shows the unit's comment right in the result list ("Only one of the two courses can be counted…").
+      ...(u.comment && { cm: u.comment }),
       ...(u.max_places > 0 && { mp: u.max_places }),
       fq: u.course_frequency || null,
       ...(u.occurence && { oc: u.occurence }),

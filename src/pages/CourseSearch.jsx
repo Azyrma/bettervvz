@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { call, isAdvancedQuery } from '../search/client';
 import { getCourseSchedule, getUnit } from '../api/vvz';
 import ProgrammePicker from '../components/ProgrammePicker';
-import { COURSE_TYPES, DEPARTMENTS, FREQUENCY, LEVELS, OCCURRENCE, WEEKDAYS, capitalize, semesterLabel, semesterName } from '../labels';
+import { COURSE_TYPES, DEPARTMENTS, FREQUENCY, LEVELS, OCCURRENCE, SECTION_TYPES, WEEKDAYS, capitalize, semesterLabel, semesterName } from '../labels';
 import './CourseSearch.css';
 
 const PAGE = 50;
@@ -45,6 +45,7 @@ function readParams(sp) {
     occurs: sp.get('occurs') === '1',
     desc: sp.get('desc') === '1',
     structure: sp.get('structure') === '1',
+    flat: sp.get('flat') === '1',
     sort: sp.get('sort') ?? 'relevance',
   };
 }
@@ -80,7 +81,12 @@ function ResultRow({ u, semkez, onOpen }) {
         onPointerEnter={() => prefetch(u.id)}
         onPointerLeave={() => clearTimeout(hoverTimer)}
       >
-        <span className="result-no">{u.no}</span>
+        <span className="result-no">
+          {u.no}
+          {u.linkType && u.linkType.split(' ').map(t => (
+            <abbr key={t} className="link-type" title={SECTION_TYPES[t] ?? t}>{t}</abbr>
+          ))}
+        </span>
         <span className="result-credits">
           {u.c != null ? <><b>{Number(u.c)}</b> ECTS</> : '–'}
         </span>
@@ -89,12 +95,14 @@ function ResultRow({ u, semkez, onOpen }) {
         <span className="result-meta">
           {u.lv?.map(l => <span key={l} className="tag" title={LEVELS[l]}>{l}</span>)}
           {u.oc && <span className="tag tag-warn">{OCCURRENCE[u.oc] ?? u.oc}</span>}
+          {u.rs && <span className="tag tag-warn" title="Registration is restricted, e.g. priority for a target group">Restricted</span>}
           {u.hr && <span title={u.ty?.map(t => COURSE_TYPES[t]).join(', ')}>{u.hr.join('+')}</span>}
           {u.lg && <span>{baseLanguages(u.lg).join(' / ')}</span>}
           {deps && <span>{deps}</span>}
           {u.ex && <span>{capitalize(u.ex)}</span>}
           {rating != null && <span className="result-rating" title="CourseReview average">★ {rating.toFixed(1)}</span>}
         </span>
+        {u.cm && <span className="result-note">{u.cm}</span>}
         {u.lec && <span className="result-lec">{u.lec.join(', ')}</span>}
         {u.paths?.length > 0 && (
           <span className="result-paths">
@@ -104,6 +112,17 @@ function ResultRow({ u, semkez, onOpen }) {
         )}
       </Link>
     </li>
+  );
+}
+
+// VVZ-style section header ("Majors › Major in Data Management Systems › Core Courses") before a block of courses.
+function ResultGroup({ heading, children }) {
+  if (!heading) return children;
+  return (
+    <>
+      <li className="group-head">{(heading.length > 1 ? heading.slice(1) : heading).join(' › ')}</li>
+      {children}
+    </>
   );
 }
 
@@ -315,7 +334,7 @@ function CourseSearch() {
     } catch { /* storage unavailable */ }
   };
 
-  const hasMore = res && !loading && res.items.length < res.total;
+  const hasMore = res && !loading && res.items.length < (res.rows ?? res.total);
   const sentinel = useCallback(node => {
     if (!node) return;
     const io = new IntersectionObserver(([entry]) => {
@@ -552,10 +571,17 @@ function CourseSearch() {
               <input type="checkbox" checked={p.desc} disabled={advanced} onChange={e => update({ desc: e.target.checked })} />
               Also search catalogue data
             </label>
-            <label className="check">
-              <input type="checkbox" checked={p.structure} disabled={advanced} onChange={e => update({ structure: e.target.checked })} />
-              Show programmes in results
-            </label>
+            {p.prog != null && !advanced ? (
+              <label className="check">
+                <input type="checkbox" checked={!p.flat} onChange={e => update({ flat: !e.target.checked })} />
+                Group by programme structure
+              </label>
+            ) : (
+              <label className="check">
+                <input type="checkbox" checked={p.structure} disabled={advanced} onChange={e => update({ structure: e.target.checked })} />
+                Show programmes in results
+              </label>
+            )}
             {advanced
               ? <span className="mode-badge">{liveOnly ? `Live from vvzapi.ch · ${semesterLabel(semkez)} not indexed yet` : 'Advanced query · vvzapi.ch'}</span>
               : <details className="syntax-toggle">
@@ -626,7 +652,11 @@ function CourseSearch() {
 
           {res && res.items.length > 0 && (
             <ol className="result-list">
-              {res.items.map(u => <ResultRow key={u.id} u={u} semkez={semkez} onOpen={remember} />)}
+              {res.items.map((u, i) => (
+                <ResultGroup key={u.group ? `${u.group}-${u.id}` : u.id} heading={u.group && u.group !== res.items[i - 1]?.group ? res.groups[u.group] : null}>
+                  <ResultRow u={u} semkez={semkez} onOpen={remember} />
+                </ResultGroup>
+              ))}
             </ol>
           )}
           {hasMore && <div ref={sentinel} className="sentinel" />}
