@@ -1,7 +1,7 @@
 // Sanity check for the search engine against a real semester index: node scripts/check-search.mjs
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { buildIndex, search, sectionList } from '../src/search/engine.js';
+import { buildIndex, findSection, search, sectionList } from '../src/search/engine.js';
 
 const semkez = '2026W';
 const index = buildIndex(JSON.parse(fs.readFileSync(`public/data/${semkez}.json`, 'utf8')));
@@ -65,6 +65,14 @@ const fs26 = buildIndex(JSON.parse(fs.readFileSync('public/data/2026S.json', 'ut
 const dayCounts = search(fs26, { dep: [5], from: '10:00' }).facets.days;
 assert.equal(dayCounts[0], search(fs26, { dep: [5], from: '10:00', days: [0] }).total, 'weekday counts respect the time window');
 assert.equal(search(fs26, { dep: [5], days: [0] }).facets.days[2], search(fs26, { dep: [5], days: [0, 2] }).total, 'weekday counts with a day ticked');
+
+// Switching semesters keeps the programme: same path in the other semester, or its deepest existing ancestor.
+const core = [...index.secById.values()].find(s => s.name === 'Core Courses' && index.pathOf(s.id)[0] === 'Computer Science Bachelor');
+const coreFs26 = findSection(fs26, index.pathOf(core.id));
+assert.ok(coreFs26 != null && coreFs26 !== core.id, 'section found in the other semester under a different id');
+assert.deepEqual(fs26.pathOf(coreFs26), index.pathOf(core.id), 'same programme path');
+assert.deepEqual(fs26.pathOf(findSection(fs26, [...index.pathOf(core.id), 'No Such Section'])), index.pathOf(core.id), 'falls back to the deepest existing ancestor');
+assert.equal(findSection(fs26, ['No Such Programme']), null, 'unknown programme clears');
 
 const owners = Object.fromEntries(sectionList(index).filter(s => !index.secById.has(s.parent)).map(s => [s.name, s.dp]));
 assert.deepEqual(owners['Computer Science Bachelor'], [5], 'CS Bachelor belongs to D-INFK');

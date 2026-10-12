@@ -127,6 +127,17 @@ export function sectionList(index) {
     });
 }
 
+// Section ids differ per semester: find the section with the same path of names here, or its deepest
+// ancestor that exists (e.g. a major that was renamed falls back to "Majors").
+export function findSection(index, path) {
+  const byPath = new Map([...index.secById.keys()].map(id => [index.pathOf(id).join('\u0000'), id]));
+  for (let n = path.length; n > 0; n--) {
+    const id = byPath.get(path.slice(0, n).join('\u0000'));
+    if (id != null) return id;
+  }
+  return null;
+}
+
 export function unitSections(index, u) {
   return (u.sec ?? []).map(([id, type]) => ({ id, type, path: index.pathOf(id) })).filter(s => s.path.length);
 }

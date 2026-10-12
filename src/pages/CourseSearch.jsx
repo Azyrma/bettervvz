@@ -370,6 +370,14 @@ function CourseSearch() {
   const progLevel = selectedSection ? programmeLevel(selectedSection.path[0]) : null;
   const progDeps = selectedSection?.dp ?? null;
 
+  // All filters carry over to the new semester; the programme is matched by its path because section ids differ.
+  const changeSemester = async sem => {
+    const prog = selectedSection
+      ? await call('findSection', { semkez: sem, path: selectedSection.path }).catch(() => null)
+      : null;
+    update({ sem, prog });
+  };
+
   const active = [
     p.prog != null && { label: sectionName ?? 'Programme', clear: { prog: null } },
     ...p.dep.map(d => ({ label: DEPARTMENTS[d]?.[0] ?? d, clear: { dep: p.dep.filter(x => x !== d) } })),
@@ -591,7 +599,7 @@ function CourseSearch() {
             </label>
             <label className="semester">
               <span className="visually-hidden">Semester</span>
-              <select value={semkez ?? ''} onChange={e => update({ sem: e.target.value, prog: null })}>
+              <select value={semkez ?? ''} onChange={e => changeSemester(e.target.value)}>
                 {!manifest && <option value="">…</option>}
                 {manifest && <option value="all">Any semester</option>}
                 {manifest?.semesters.map(s => (

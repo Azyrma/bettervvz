@@ -1,5 +1,5 @@
 // Search runs off the main thread: indexes are parsed and queried here so typing never blocks the UI.
-import { buildIndex, search, sectionList, unitSections } from './engine.js';
+import { buildIndex, findSection, search, sectionList, unitSections } from './engine.js';
 import { getSemesters, searchCourses } from '../api/vvz.js';
 import { DEPARTMENTS } from '../labels.js';
 
@@ -130,6 +130,10 @@ const handlers = {
     if (q == null) return { checked: false, items: [] };
     const page = await livePage(ix, p.semkez, scope(p.semkez, q), 0, 'number', FRESH_LIMIT);
     return { checked: true, items: page.items.filter(u => !ix.byNumber.has(u.no)) };
+  },
+
+  async findSection({ semkez, path }) {
+    return findSection(await load(semkez), path);
   },
 
   async unit({ semkez, id }) {
