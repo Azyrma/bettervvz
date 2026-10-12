@@ -397,7 +397,8 @@ function CourseSearch() {
     ...p.exam.map(x => ({ label: capitalize(x), clear: { exam: p.exam.filter(y => y !== x) } })),
     ...p.fq.map(f => ({ label: FREQUENCY[f] ?? f, clear: { fq: p.fq.filter(x => x !== f) } })),
     p.lect && { label: `Lecturer: ${p.lect}`, clear: { lect: null } },
-    p.cat && { label: `Catalogue data: ${p.cat}`, clear: { cat: null } },
+    // Catalogue data only exists per semester; in Any semester the filter is ignored, so no chip claims it.
+    p.cat && !anySem && { label: `Catalogue data: ${p.cat}`, clear: { cat: null } },
     p.room && { label: `Room: ${p.room}`, clear: { room: null } },
     (p.days.length > 0 || p.from || p.to) && {
       label: [p.days.map(d => WEEKDAYS[d]).join(', '), (p.from || p.to) && `${p.from || '…'}–${p.to || '…'}`].filter(Boolean).join(' '),
