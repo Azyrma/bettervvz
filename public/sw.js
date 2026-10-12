@@ -61,7 +61,8 @@ async function cacheFirst(request, name, dropOldVersions = false) {
   const hit = await cache.match(request);
   if (hit) return hit;
   const res = await fetch(request);
-  if (res.ok) {
+  // Never pin an SPA-fallback page (index.html) under an asset or data URL.
+  if (res.ok && !res.headers.get('content-type')?.includes('text/html')) {
     if (dropOldVersions) {
       const path = new URL(request.url).pathname;
       for (const old of await cache.keys()) {

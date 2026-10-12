@@ -19,8 +19,12 @@ function once(map, key, load) {
 
 async function fetchJson(url) {
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`Could not load course data (${res.status})`);
-  return res.json();
+  const body = await res.text();
+  // Servers with an SPA fallback answer a missing data file with index.html rather than a 404.
+  if (!res.ok || body.startsWith('<')) {
+    throw new Error(`Course data not found at ${url.split('?')[0]}. Run "npm run data" (restart the dev server if it is running), then reload.`);
+  }
+  return JSON.parse(body);
 }
 
 const loadManifest = () => once(manifest, 'semesters', () => fetchJson(`${DATA}semesters.json`));

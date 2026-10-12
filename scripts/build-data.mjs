@@ -202,23 +202,30 @@ async function main() {
   const semkezs = db.prepare('SELECT DISTINCT semkez FROM learningunit ORDER BY semkez DESC').all().map(r => r.semkez);
   const latest = db.prepare('SELECT semkez FROM latestsemkez ORDER BY scraped_at DESC LIMIT 1').get()?.semkez;
 
-  fs.rmSync(OUT, { recursive: true, force: true });
+  // Overwrite in place rather than recreating the folder: a running dev server can lose track
+  // of public files that are deleted and re-added in one burst, and then serves index.html instead.
   fs.mkdirSync(OUT, { recursive: true });
+  const stale = new Set(fs.readdirSync(OUT));
+  const write = (name, data) => {
+    fs.writeFileSync(`${OUT}/${name}`, JSON.stringify(data));
+    stale.delete(name);
+  };
   const semesters = [];
   for (const semkez of semkezs) {
     const { index, text } = buildSemester(db, semkez);
     if (!index.units.length) continue;
-    fs.writeFileSync(`${OUT}/${semkez}.json`, JSON.stringify(index));
+    write(`${semkez}.json`, index);
     // Catalogue data (abstract, objective, content, literature, …) for full-text search; only fetched when that toggle is on.
-    fs.writeFileSync(`${OUT}/${semkez}.text.json`, JSON.stringify(text));
+    write(`${semkez}.text.json`, text);
     semesters.push({ semkez, count: index.units.length });
   }
-  fs.writeFileSync(`${OUT}/semesters.json`, JSON.stringify({
+  write('semesters.json', {
     version,
     build,
     latest: latest ?? semesters[0]?.semkez,
     semesters,
-  }));
+  });
+  for (const name of stale) fs.rmSync(`${OUT}/${name}`);
   db.close();
   console.log(`Wrote ${semesters.length} semester indexes (dump ${new Date(version).toISOString()}) to ${OUT}/`);
 }
