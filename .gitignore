@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# vvzapi.ch dump cache and generated course indexes (npm run data)
+.cache
+public/data

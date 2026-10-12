@@ -4,10 +4,14 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "data": "node scripts/build-data.mjs",
+    "predev": "npm run data",
     "dev": "vite",
+    "prebuild": "npm run data",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node scripts/check-search.mjs"
   },
   "dependencies": {
     "fuse.js": "^7.1.0",
