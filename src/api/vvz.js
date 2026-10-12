@@ -25,6 +25,10 @@ export async function searchCourses(q, { limit = 20, offset = 0, orderBy = 'numb
   return res.json(); // { total, results, parsed_query, exec_time_ms }
 }
 
+export function getSemesters() {
+  return getJson('/api/v1/misc/semesters', 'Semesters fetch'); // ["2026W", "2027S", ...]
+}
+
 export function getUnit(unitId) {
   return getJson(`/api/v1/unit/${unitId}/get`, 'Unit fetch');
 }

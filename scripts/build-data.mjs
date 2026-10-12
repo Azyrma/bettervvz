@@ -84,6 +84,10 @@ function buildSemester(db, semkez) {
            u.exam_type, u.priority, u.max_places, u.course_frequency, u.occurence, u."groups", u.scraped_at,
            COALESCE(u.abstract_english, u.abstract) AS abstract, COALESCE(u.objective_english, u.objective) AS objective,
            COALESCE(u.content_english, u.content) AS content,
+           COALESCE(u.literature_english, u.literature) AS literature,
+           COALESCE(u.lecture_notes_english, u.lecture_notes) AS lecture_notes,
+           COALESCE(u.additional_english, u.additional) AS additional,
+           COALESCE(u.comment_english, u.comment) AS comment,
            r.recommended, r.engaging, r.difficulty, r.effort, r.resources
     FROM learningunit u LEFT JOIN rating r ON r.course_number = u.number
     WHERE u.semkez = ? AND u.number IS NOT NULL AND u.title IS NOT NULL`).all(semkez);
@@ -112,11 +116,12 @@ function buildSemester(db, semkez) {
       hr: [],
       ty: [],
       ts: [],
+      rm: [],
       lec: [],
       sec: [],
       _seen: new Set(),
       _groups: json(u.groups) ?? [],
-      _text: normalize([u.abstract, u.objective, u.content].filter(Boolean).join(' ')),
+      _text: normalize([u.abstract, u.objective, u.content, u.literature, u.lecture_notes, u.additional, u.comment].filter(Boolean).join(' ')),
       scraped_at: u.scraped_at,
     });
   }
@@ -126,6 +131,8 @@ function buildSemester(db, semkez) {
   ).all(semkez);
   const addSlots = (u, slots, type) => {
     for (const s of slots ?? []) {
+      const room = [s.building, s.floor, s.room].filter(Boolean).join(' ');
+      if (room && !u.rm.includes(room)) u.rm.push(room);
       if (s.weekday > 6 || !s.start_time) continue;
       const key = `${s.weekday}|${s.start_time}|${s.end_time}|${type}`;
       if (u._seen.has(key)) continue;
@@ -174,7 +181,7 @@ function buildSemester(db, semkez) {
     delete u._groups;
     delete u._text;
     delete u.scraped_at;
-    for (const k of ['hr', 'ty', 'ts', 'lec', 'sec']) if (!u[k].length) delete u[k];
+    for (const k of ['hr', 'ty', 'ts', 'rm', 'lec', 'sec']) if (!u[k].length) delete u[k];
   }
   return { index: { semkez, units: list, sections }, text };
 }
@@ -202,7 +209,7 @@ async function main() {
     const { index, text } = buildSemester(db, semkez);
     if (!index.units.length) continue;
     fs.writeFileSync(`${OUT}/${semkez}.json`, JSON.stringify(index));
-    // Abstract, objective and content for description search; only fetched when that toggle is on.
+    // Catalogue data (abstract, objective, content, literature, …) for full-text search; only fetched when that toggle is on.
     fs.writeFileSync(`${OUT}/${semkez}.text.json`, JSON.stringify(text));
     semesters.push({ semkez, count: index.units.length });
   }

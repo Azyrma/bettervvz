@@ -573,7 +573,8 @@
     'no title credits'
     'no sub credits'
     'no meta credits'
-    'no lec credits';
+    'no lec credits'
+    'no paths credits';
   column-gap: 1.25rem;
   padding: 0.85rem 0.5rem;
   color: inherit;
@@ -666,6 +667,55 @@
 .result-rating {
   color: var(--bronze);
   font-weight: 600;
+}
+
+.result-paths {
+  grid-area: paths;
+  display: flex;
+  flex-direction: column;
+  margin-top: 0.3rem;
+  padding-left: 0.6rem;
+  border-left: 2px solid var(--blue-20);
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.result-paths span {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.fresh {
+  margin-top: 1.5rem;
+}
+
+.fresh h3 {
+  padding-bottom: 0.4rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  border-bottom: 2px solid var(--blue);
+}
+
+.fresh h3 span {
+  margin-left: 0.5rem;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.text-filter {
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  font-size: 0.875rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  outline: none;
+}
+
+.text-filter:focus {
+  border-color: var(--blue);
 }
 
 .result-lec {
@@ -817,7 +867,8 @@
       'title title'
       'sub sub'
       'meta meta'
-      'lec lec';
+      'lec lec'
+      'paths paths';
     padding: 0.85rem 0.25rem;
   }
 

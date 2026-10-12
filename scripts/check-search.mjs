@@ -26,6 +26,15 @@ assert.ok(filtered.facets.dep[1] > 0, 'facet counts ignore own selection');
 const ects = search(index, { cmin: 8, cmax: 10, limit: 10000 });
 assert.ok(ects.items.every(u => u.c >= 8 && u.c <= 10), 'credit range');
 
+const fq = search(index, { fq: ['BIENNIAL'], limit: 10000 });
+assert.ok(fq.total > 0 && fq.items.every(u => u.fq === 'BIENNIAL'), 'periodicity filter');
+const inHG = search(index, { room: 'hg', limit: 10000 });
+assert.ok(inHG.total > 0 && inHG.items.every(u => u.rm.some(r => r.startsWith('HG '))), 'room filter');
+assert.ok(search(index, { lect: 'schwerhof', limit: 10000 }).items.some(u => u.no === '252-0027-00L'), 'lecturer filter with typo');
+assert.equal(search(index, { q: 'programming', lect: 'schwerhoff', limit: 10000 }).total,
+  search(index, { q: 'programming schwerhoff', limit: 10000 }).total, 'lecturer filter agrees with lecturer words in query');
+assert.ok(search(index, { q: '252-0027', structure: true }).items[0].paths[0][0].includes('Computer Science'), 'structure paths');
+
 const withText = search(index, { q: 'reinforcement', limit: 10000 }, text).total;
 assert.ok(withText > search(index, { q: 'reinforcement', limit: 10000 }).total, 'description search widens results');
 

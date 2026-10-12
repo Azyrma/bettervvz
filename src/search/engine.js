@@ -65,6 +65,7 @@ export function buildIndex({ semkez, units, sections }) {
     phrase: ` ${normalize(u.t)} | ${normalize(u.tg)} `,
     nn: u.no.replace(/\D/g, ''),
     langs: languagesOf(u.lg),
+    rooms: (u.rm ?? []).map(r => ` ${normalize(r)}`),
     rating: u.cr ? mean(u.cr) : null,
     secs: (u.sec ?? []).map(s => s[0]),
   }));
@@ -91,7 +92,7 @@ export function buildIndex({ semkez, units, sections }) {
     pathOf,
     byId: new Map(docs.map(d => [d.u.id, d.u])),
     byNumber: new Map(docs.map(d => [d.u.no, d.u])),
-    hasTimes: units.some(u => u.ts),
+    timed: units.filter(u => u.ts).length,
     cache: new Map(),
   };
 }
@@ -154,13 +155,17 @@ function textScore(d, { numbers, qWords, scores, phrase }, text) {
   return total + 0.5 * Math.min(1, matched / Math.max(1, d.titleLen));
 }
 
-const BIT = { text: 1, prog: 2, dep: 4, lvl: 8, lang: 16, type: 32, exam: 64, credits: 128, time: 256, open: 512, rating: 1024, occurs: 2048 };
+const BIT = {
+  text: 1, prog: 2, dep: 4, lvl: 8, lang: 16, type: 32, exam: 64, credits: 128, time: 256,
+  open: 512, rating: 1024, occurs: 2048, fq: 4096, room: 8192, lect: 16384,
+};
 const FACETS = {
   dep: d => d.u.dp,
   lvl: d => d.u.lv,
   lang: d => d.langs,
   type: d => d.u.ty ?? [],
   exam: d => (d.u.ex ? [d.u.ex] : []),
+  fq: d => (d.u.fq ? [d.u.fq] : []),
 };
 
 function subtree(index, id) {
@@ -184,7 +189,8 @@ const SORTS = {
 };
 
 /**
- * p: { q, prog, dep[], lvl[], lang[], type[], exam[], cmin, cmax, days[], from, to, open, occurs, rmin, sort, limit }
+ * p: { q, prog, dep[], lvl[], lang[], type[], exam[], fq[], cmin, cmax, days[], from, to, room, lect,
+ *      open, occurs, rmin, structure, sort, limit }
  * text: optional { [unitId]: normalized description } to also match inside descriptions.
  */
 export function search(index, p, text = null) {
@@ -194,7 +200,10 @@ export function search(index, p, text = null) {
   const prog = p.prog ? subtree(index, p.prog) : null;
   const sets = Object.fromEntries(Object.keys(FACETS).map(k => [k, new Set(p[k] ?? [])]));
   const days = new Set(p.days ?? []);
-  const timed = index.hasTimes && (days.size || p.from || p.to);
+  const timed = index.timed > 0 && (days.size || p.from || p.to);
+  const room = p.room ? ` ${normalize(p.room)}` : '';
+  // Lecturer filter: every word must match a lecturer name (typos allowed), not just a title word.
+  const lect = words(p.lect).map(w => wordScores(index, w));
   const facets = Object.fromEntries(Object.keys(FACETS).map(k => [k, {}]));
   const results = [];
 
@@ -208,6 +217,8 @@ export function search(index, p, text = null) {
     if ((p.cmin != null && !(u.c >= p.cmin)) || (p.cmax != null && !(u.c <= p.cmax))) fail |= BIT.credits;
     if (timed && !u.ts?.some(([wd, start, end]) =>
       (!days.size || days.has(wd)) && (!p.from || start >= p.from) && (!p.to || end <= p.to))) fail |= BIT.time;
+    if (room.length > 1 && !d.rooms.some(r => r.includes(room))) fail |= BIT.room;
+    if (lect.length && !lect.every(s => d.lec.some(id => s[id] >= 0.5))) fail |= BIT.lect;
     if (p.open && u.rs) fail |= BIT.open;
     if (p.occurs && u.oc) fail |= BIT.occurs;
     if (p.rmin && !(d.rating >= p.rmin)) fail |= BIT.rating;
@@ -221,11 +232,12 @@ export function search(index, p, text = null) {
 
   const sort = p.sort && p.sort !== 'relevance' ? p.sort : hasQuery ? 'relevance' : 'number';
   results.sort(SORTS[sort] ?? SORTS.number);
+  const page = results.slice(0, p.limit ?? 50).map(r => r.d.u);
   return {
     total: results.length,
-    items: results.slice(0, p.limit ?? 50).map(r => r.d.u),
+    // "Show programmes" mirrors VVZ's result view with structural information.
+    items: p.structure ? page.map(u => ({ ...u, paths: unitSections(index, u).map(s => s.path) })) : page,
     facets,
-    hasTimes: index.hasTimes,
     ms: Math.round((performance.now() - t0) * 10) / 10,
   };
 }

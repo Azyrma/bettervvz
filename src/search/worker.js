@@ -1,6 +1,7 @@
 // Search runs off the main thread: indexes are parsed and queried here so typing never blocks the UI.
 import { buildIndex, search, sectionList, unitSections } from './engine.js';
-import { searchCourses } from '../api/vvz.js';
+import { getSemesters, searchCourses } from '../api/vvz.js';
+import { DEPARTMENTS } from '../labels.js';
 
 const DATA = `${import.meta.env.BASE_URL}data/`;
 const manifest = new Map();
@@ -36,23 +37,60 @@ function fromGroup(no, group, semkez) {
 
 const LIVE_ORDER = { number: ['number', 'asc'], title: ['title_english', 'asc'], credits: ['credits', 'desc'], rating: ['coursereview', 'desc'] };
 const LIVE_PAGE = 50;
+const FRESH_LIMIT = 20;
 
-function livePage(ix, scoped, offset, sort) {
+const scope = (semkez, q) => `y:${semkez.slice(0, 4)} s:${semkez[4] === 'W' ? 'HS' : 'FS'}${q ? ` (${q})` : ''}`;
+
+// ix is null for semesters that only vvzapi.ch knows about.
+function livePage(ix, semkez, scoped, offset, sort, limit = LIVE_PAGE) {
   const [orderBy, order] = LIVE_ORDER[sort] ?? LIVE_ORDER.number;
   // ponytail: unbounded per-session cache of mapped pages; they are small (records are shared with the index).
-  return once(livePages, `${sort}|${offset}|${scoped}`, async () => {
-    const res = await searchCourses(scoped, { limit: LIVE_PAGE, offset, orderBy, order });
-    const items = Object.entries(res.results).map(([no, g]) => ix.byNumber.get(no) ?? fromGroup(no, g, ix.semkez));
+  return once(livePages, `${sort}|${offset}|${limit}|${scoped}`, async () => {
+    const res = await searchCourses(scoped, { limit, offset, orderBy, order });
+    const items = Object.entries(res.results).map(([no, g]) => ix?.byNumber.get(no) ?? fromGroup(no, g, semkez));
     return { total: res.total, items, parsed: res.parsed_query, ms: res.exec_time_ms };
   });
+}
+
+const quote = s => `"${String(s).replace(/"/g, '')}"`;
+const anyOf = (key, values) => (values?.length ? `(${values.map(v => `${key}:${quote(v)}`).join(' OR ')})` : '');
+
+// The same plain search plus filters in vvzapi.ch query syntax, or null when a filter has no equivalent there.
+function toQuery(p, ix) {
+  if (p.type?.length || p.fq?.length || p.days?.length || p.from || p.to || p.room || p.occurs || p.desc) return null;
+  const words = p.q.replace(/["'`()]/g, ' ').split(/\s+/).filter(Boolean)
+    .map(w => (/^\d{3}-/.test(w) ? `n:${w}` : w));
+  const path = p.prog != null ? ix.pathOf(p.prog) : [];
+  return [
+    ...words,
+    ...path.map(name => `o:${quote(name)}`),
+    anyOf('dep', p.dep?.map(d => DEPARTMENTS[d]?.[0] ?? d)),
+    anyOf('lvl', p.lvl),
+    anyOf('lang', p.lang),
+    anyOf('e', p.exam),
+    p.cmin != null && `c>=${p.cmin}`,
+    p.cmax != null && `c<=${p.cmax}`,
+    p.open && 'restricted:false',
+    p.rmin != null && `cr>=${p.rmin}`,
+    ...(p.lect ?? '').split(/\s+/).filter(Boolean).map(w => `l:${quote(w)}`),
+  ].filter(Boolean).join(' ');
 }
 
 const handlers = {
   semesters: loadManifest,
 
+  // Semesters published on vvzapi.ch after the last index build are listed too and searched live.
+  async liveSemesters() {
+    const local = await loadManifest();
+    const live = await getSemesters().catch(() => []);
+    const known = new Set(local.semesters.map(s => s.semkez));
+    const extra = live.filter(s => !known.has(s)).map(semkez => ({ semkez, live: true }));
+    return { ...local, semesters: [...local.semesters, ...extra].sort((a, b) => b.semkez.localeCompare(a.semkez)) };
+  },
+
   async meta({ semkez }) {
     const ix = await load(semkez);
-    return { sections: sectionList(ix), hasTimes: ix.hasTimes };
+    return { sections: sectionList(ix), timed: ix.timed, total: ix.docs.length };
   },
 
   async search(p) {
@@ -61,18 +99,28 @@ const handlers = {
   },
 
   // Advanced vvzapi.ch query syntax is answered by vvzapi.ch itself, scoped to the chosen semester.
-  async live({ semkez, q, limit = LIVE_PAGE, sort }) {
-    const ix = await load(semkez);
-    const scoped = `y:${semkez.slice(0, 4)} s:${semkez[4] === 'W' ? 'HS' : 'FS'} (${q})`;
+  async live({ semkez, q, limit = LIVE_PAGE, sort, indexed = true }) {
+    const ix = indexed ? await load(semkez) : null;
+    const scoped = scope(semkez, q);
     const offsets = [];
     for (let o = 0; o < limit; o += LIVE_PAGE) offsets.push(o);
-    const pages = await Promise.all(offsets.map(o => livePage(ix, scoped, o, sort)));
+    const pages = await Promise.all(offsets.map(o => livePage(ix, semkez, scoped, o, sort)));
     return {
       total: pages[0].total,
       items: pages.flatMap(p => p.items),
       parsed: pages[0].parsed,
       ms: Math.round(pages[0].ms),
     };
+  },
+
+  // Plain searches are also asked of vvzapi.ch (once typing pauses), so courses added since the
+  // last index build still show up. Returns only the courses the local index doesn't have.
+  async fresh(p) {
+    const ix = await load(p.semkez);
+    const q = toQuery(p, ix);
+    if (q == null) return { checked: false, items: [] };
+    const page = await livePage(ix, p.semkez, scope(p.semkez, q), 0, 'number', FRESH_LIMIT);
+    return { checked: true, items: page.items.filter(u => !ix.byNumber.has(u.no)) };
   },
 
   async unit({ semkez, id }) {

@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { call, isAdvancedQuery } from '../search/client';
 import { getCourseSchedule, getUnit } from '../api/vvz';
 import ProgrammePicker from '../components/ProgrammePicker';
-import { COURSE_TYPES, DEPARTMENTS, LEVELS, OCCURRENCE, WEEKDAYS, capitalize, semesterLabel, semesterName } from '../labels';
+import { COURSE_TYPES, DEPARTMENTS, FREQUENCY, LEVELS, OCCURRENCE, WEEKDAYS, capitalize, semesterLabel, semesterName } from '../labels';
 import './CourseSearch.css';
 
 const PAGE = 50;
@@ -31,15 +31,19 @@ function readParams(sp) {
     lang: list('lang'),
     type: list('type'),
     exam: list('exam'),
+    fq: list('fq'),
     days: list('days').map(Number),
     from: sp.get('from') ?? '',
     to: sp.get('to') ?? '',
+    room: sp.get('room') ?? '',
+    lect: sp.get('lect') ?? '',
     cmin: num('cmin'),
     cmax: num('cmax'),
     rmin: num('rmin'),
     open: sp.get('open') === '1',
     occurs: sp.get('occurs') === '1',
     desc: sp.get('desc') === '1',
+    structure: sp.get('structure') === '1',
     sort: sp.get('sort') ?? 'relevance',
   };
 }
@@ -91,6 +95,12 @@ function ResultRow({ u, semkez, onOpen }) {
           {rating != null && <span className="result-rating" title="CourseReview average">★ {rating.toFixed(1)}</span>}
         </span>
         {u.lec && <span className="result-lec">{u.lec.join(', ')}</span>}
+        {u.paths?.length > 0 && (
+          <span className="result-paths">
+            {u.paths.slice(0, 3).map(path => <span key={path.join('|')}>{path.join(' › ')}</span>)}
+            {u.paths.length > 3 && <span>+{u.paths.length - 3} more</span>}
+          </span>
+        )}
       </Link>
     </li>
   );
@@ -192,6 +202,7 @@ function CourseSearch() {
   const [manifest, setManifest] = useState(null);
   const [meta, setMeta] = useState(null);
   const [res, setRes] = useState(null);
+  const [fresh, setFresh] = useState(null);
   const [error, setError] = useState(null);
   const [saved] = useState(readSaved);
   const [page, setPage] = useState(() => (saved?.key === key ? { key, limit: saved.limit } : { key: null, limit: PAGE }));
@@ -200,7 +211,10 @@ function CourseSearch() {
   const inputRef = useRef(null);
 
   const semkez = p.sem ?? manifest?.latest;
-  const advanced = isAdvancedQuery(p.q);
+  // Semesters missing from the local index (published on vvzapi.ch since the last build) are searched live.
+  const liveOnly = !!manifest && !manifest.semesters.some(s => s.semkez === semkez && !s.live);
+  const advanced = liveOnly || isAdvancedQuery(p.q);
+  const plainQuery = !advanced && p.q.trim().length >= 3;
   const limit = page.key === key ? page.limit : PAGE;
   const resKey = `${semkez}|${key}|${limit}`;
   const loading = !res || res.key !== resKey;
@@ -220,22 +234,27 @@ function CourseSearch() {
   const toggle = (k, value) => update({ [k]: p[k].includes(value) ? p[k].filter(v => v !== value) : [...p[k], value] });
 
   useEffect(() => {
-    loadSemesters().then(setManifest).catch(e => setError(e.message));
+    loadSemesters()
+      .then(local => {
+        setManifest(local);
+        return call('liveSemesters').then(setManifest);
+      })
+      .catch(e => setError(e.message));
   }, []);
 
   useEffect(() => {
-    if (!semkez) return;
+    if (!manifest || !semkez || liveOnly) return;
     let alive = true;
     call('meta', { semkez })
       .then(m => alive && setMeta({ semkez, ...m }))
       .catch(e => alive && setError(e.message));
     return () => { alive = false; };
-  }, [semkez]);
+  }, [manifest, semkez, liveOnly]);
 
   useEffect(() => {
-    if (!semkez) return;
+    if (!manifest || !semkez) return;
     let alive = true;
-    const run = () => call(advanced ? 'live' : 'search', { ...p, q: p.q.trim(), semkez, limit })
+    const run = () => call(advanced ? 'live' : 'search', { ...p, q: p.q.trim(), semkez, limit, indexed: !liveOnly })
       .then(r => {
         if (!alive) return;
         setRes({ ...r, key: `${semkez}|${key}|${limit}`, advanced });
@@ -248,7 +267,23 @@ function CourseSearch() {
       alive = false;
       clearTimeout(timer);
     };
-  }, [semkez, key, p, limit, advanced]);
+  }, [manifest, semkez, key, p, limit, advanced, liveOnly]);
+
+  // Once typing pauses, ask vvzapi.ch too, for courses newer than the local index.
+  useEffect(() => {
+    if (!manifest || !semkez || !plainQuery || liveOnly) return;
+    let alive = true;
+    const timer = setTimeout(() => {
+      call('fresh', { ...p, q: p.q.trim(), semkez })
+        .then(r => alive && setFresh({ ...r, key: `${semkez}|${key}` }))
+        .catch(() => alive && setFresh({ checked: false, items: [], key: `${semkez}|${key}` }));
+    }, 600);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [manifest, semkez, key, p, plainQuery, liveOnly]);
+  const freshNow = plainQuery && fresh?.key === `${semkez}|${key}` ? fresh : null;
 
   // Coming back from a course page: restore how far the list was scrolled.
   useEffect(() => {
@@ -292,7 +327,8 @@ function CourseSearch() {
   const facets = !advanced && res?.facets;
   const metaReady = meta != null && meta.semkez === semkez;
   const sections = metaReady ? meta.sections : null;
-  const hasTimes = metaReady ? meta.hasTimes : true;
+  const timed = metaReady ? meta.timed : null;
+  const semCount = metaReady ? meta.total : null;
   const sectionName = sections?.find(s => s.id === p.prog)?.name;
 
   const active = [
@@ -306,6 +342,9 @@ function CourseSearch() {
     ...p.type.map(t => ({ label: COURSE_TYPES[t] ?? t, clear: { type: p.type.filter(x => x !== t) } })),
     ...p.lang.map(l => ({ label: l, clear: { lang: p.lang.filter(x => x !== l) } })),
     ...p.exam.map(x => ({ label: capitalize(x), clear: { exam: p.exam.filter(y => y !== x) } })),
+    ...p.fq.map(f => ({ label: FREQUENCY[f] ?? f, clear: { fq: p.fq.filter(x => x !== f) } })),
+    p.lect && { label: `Lecturer: ${p.lect}`, clear: { lect: null } },
+    p.room && { label: `Room: ${p.room}`, clear: { room: null } },
     (p.days.length > 0 || p.from || p.to) && {
       label: [p.days.map(d => WEEKDAYS[d]).join(', '), (p.from || p.to) && `${p.from || '…'}–${p.to || '…'}`].filter(Boolean).join(' '),
       clear: { days: null, from: null, to: null },
@@ -389,6 +428,12 @@ function CourseSearch() {
         />
       </details>
 
+      <details className="filter-group" open={!!p.lect}>
+        <summary>Lecturer</summary>
+        <input type="search" className="text-filter" placeholder="Name — typos are fine" value={p.lect}
+          onChange={e => update({ lect: e.target.value })} aria-label="Lecturer name" />
+      </details>
+
       <details className="filter-group" open={p.lang.length > 0}>
         <summary>Language</summary>
         <CheckList options={languages.map(l => [l, l])} selected={p.lang} counts={facets?.lang} onToggle={v => toggle('lang', v)} />
@@ -399,12 +444,28 @@ function CourseSearch() {
         <CheckList options={exams.map(x => [x, capitalize(x)])} selected={p.exam} counts={facets?.exam} onToggle={v => toggle('exam', v)} />
       </details>
 
-      <details className="filter-group" open={p.days.length > 0 || !!p.from || !!p.to}>
-        <summary>Day &amp; time</summary>
-        {!hasTimes && (
-          <p className="filter-note">vvzapi.ch has no lecture times for {semesterLabel(semkez)} yet, so this filter is off.</p>
+      <details className="filter-group" open={p.fq.length > 0}>
+        <summary>Periodicity</summary>
+        <CheckList
+          options={Object.entries(FREQUENCY).filter(([f]) => facets?.fq?.[f] || p.fq.includes(f))}
+          selected={p.fq}
+          counts={facets?.fq}
+          onToggle={v => toggle('fq', v)}
+        />
+      </details>
+
+      <details className="filter-group" open={p.days.length > 0 || !!p.from || !!p.to || !!p.room}>
+        <summary>Day, time &amp; place</summary>
+        {timed === 0 && (
+          <p className="filter-note">vvzapi.ch has no times or rooms for {semesterLabel(semkez)} yet, so this filter is off.</p>
         )}
-        <fieldset disabled={!hasTimes}>
+        {timed > 0 && timed < semCount / 2 && (
+          <p className="filter-note">
+            Only {fmt(timed)} of {fmt(semCount)} courses in {semesterLabel(semkez)} have times or rooms on vvzapi.ch so far;
+            the others are hidden while this filter is on.
+          </p>
+        )}
+        <fieldset disabled={timed === 0}>
           <div className="chips">
             {WEEKDAYS.slice(0, 6).map((d, i) => (
               <button type="button" key={d} className={`chip${p.days.includes(i) ? ' on' : ''}`} aria-pressed={p.days.includes(i)}
@@ -422,6 +483,8 @@ function CourseSearch() {
               <input type="time" step="900" value={p.to} onChange={e => update({ to: e.target.value })} />
             </label>
           </div>
+          <input type="search" className="text-filter" placeholder="Building or room, e.g. HG or CAB G 61" value={p.room}
+            onChange={e => update({ room: e.target.value })} aria-label="Building or room" />
         </fieldset>
       </details>
 
@@ -479,10 +542,14 @@ function CourseSearch() {
           <div className="search-options">
             <label className="check">
               <input type="checkbox" checked={p.desc} disabled={advanced} onChange={e => update({ desc: e.target.checked })} />
-              Also search descriptions
+              Also search catalogue data
+            </label>
+            <label className="check">
+              <input type="checkbox" checked={p.structure} disabled={advanced} onChange={e => update({ structure: e.target.checked })} />
+              Show programmes in results
             </label>
             {advanced
-              ? <span className="mode-badge">Advanced query · vvzapi.ch</span>
+              ? <span className="mode-badge">{liveOnly ? `Live from vvzapi.ch · ${semesterLabel(semkez)} not indexed yet` : 'Advanced query · vvzapi.ch'}</span>
               : <details className="syntax-toggle">
                   <summary>Advanced syntax</summary>
                   <SyntaxHelp onExample={ex => update({ q: ex })} />
@@ -516,6 +583,7 @@ function CourseSearch() {
               {res ? <><b>{fmt(res.total)}</b> {res.total === 1 ? 'course' : 'courses'}</> : 'Loading courses…'}
               {res && semkez && <> in {semesterLabel(semkez)}</>}
               {res?.ms != null && <span className="results-ms"> · {res.advanced ? 'vvzapi.ch ' : ''}{res.ms} ms</span>}
+              {freshNow?.checked && <span className="results-ms" title="This search was also run on vvzapi.ch to catch courses newer than the local index"> · checked with vvzapi.ch</span>}
             </p>
             <div className="results-tools">
               <button type="button" className="filters-btn" onClick={() => setFiltersOpen(true)}>
@@ -555,7 +623,16 @@ function CourseSearch() {
           )}
           {hasMore && <div ref={sentinel} className="sentinel" />}
 
-          {res && !loading && res.total === 0 && (
+          {!hasMore && freshNow?.items.length > 0 && (
+            <section className="fresh">
+              <h3>New on vvzapi.ch <span>not in the local index yet</span></h3>
+              <ol className="result-list">
+                {freshNow.items.map(u => <ResultRow key={u.id} u={u} semkez={semkez} onOpen={remember} />)}
+              </ol>
+            </section>
+          )}
+
+          {res && !loading && res.total === 0 && !freshNow?.items.length && (
             <div className="empty">
               <p>No courses match{p.q.trim() ? <> “{p.q.trim()}”</> : ''}.</p>
               <div className="empty-actions">
