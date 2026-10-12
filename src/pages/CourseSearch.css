@@ -188,15 +188,6 @@
 
 /* ---------- Filters ---------- */
 
-.filters-panel {
-  position: sticky;
-  top: calc(var(--header-h) + 1rem);
-  max-height: calc(100vh - var(--header-h) - 2rem);
-  overflow-y: auto;
-  padding-right: 0.25rem;
-  overscroll-behavior: contain;
-}
-
 .filters-backdrop,
 .filters-foot {
   display: none;
@@ -855,6 +846,8 @@
     top: auto;
     max-height: 88vh;
     max-height: 88dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
     padding: 1rem var(--gutter) 0;
     background: var(--surface);
     transform: translateY(100%);
