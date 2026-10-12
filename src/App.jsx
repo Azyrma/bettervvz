@@ -1,32 +1,24 @@
-import { useState } from 'react';
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, Navigate, useParams } from 'react-router-dom';
 import './App.css';
 import NavBar from './components/NavBar';
-import Hero from './pages/Hero';
 import CourseSearch from './pages/CourseSearch';
 import CourseDetail from './pages/CourseDetail';
-import Placeholder from './pages/Placeholder';
-import Timetable from './pages/Timetable';
 
+// A fresh detail page per course, so no state leaks between courses.
+function CourseDetailRoute() {
+  const { unitId } = useParams();
+  return <CourseDetail key={unitId} unitId={Number(unitId)} />;
+}
+
+// Timetable, Semester Planner and the old landing page are hidden for now; their pages stay in src/pages.
 function App() {
-  const [timetableCourses, setTimetableCourses] = useState([]);
-
-  function toggleTimetableCourse(courseInfo) {
-    setTimetableCourses(prev => {
-      const exists = prev.some(c => c.id === courseInfo.id);
-      return exists ? prev.filter(c => c.id !== courseInfo.id) : [...prev, courseInfo];
-    });
-  }
-
   return (
     <>
       <NavBar />
       <Routes>
-        <Route path="/" element={<Hero />} />
-        <Route path="/courses" element={<CourseSearch timetableCourses={timetableCourses} onToggleCourse={toggleTimetableCourse} />} />
-        <Route path="/courses/:unitId" element={<CourseDetail />} />
-        <Route path="/timetable" element={<Timetable timetableCourses={timetableCourses} />} />
-        <Route path="/planner" element={<Placeholder title="Semester Planner" />} />
+        <Route path="/" element={<CourseSearch />} />
+        <Route path="/courses/:unitId" element={<CourseDetailRoute />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </>
   );

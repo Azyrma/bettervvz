@@ -1,499 +1,571 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { searchCourses, getSemesters, getSectionIds, getSection, getCourseSchedule } from '../api/vvz';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { call, isAdvancedQuery } from '../search/client';
+import { getCourseSchedule, getUnit } from '../api/vvz';
+import ProgrammePicker from '../components/ProgrammePicker';
+import { COURSE_TYPES, DEPARTMENTS, LEVELS, OCCURRENCE, WEEKDAYS, capitalize, semesterLabel, semesterName } from '../labels';
 import './CourseSearch.css';
 
-const SEMESTERS = [
-  { label: 'Spring (FS)', value: 'FS' },
-  { label: 'Autumn (HS)', value: 'HS' },
+const PAGE = 50;
+const SCROLL_KEY = 'course-search-position';
+
+let semestersPromise = null;
+const loadSemesters = () => (semestersPromise ??= call('semesters').catch(e => {
+  semestersPromise = null;
+  throw e;
+}));
+
+const fmt = n => n.toLocaleString('de-CH').replace(/’/g, "'");
+const avg = xs => xs.reduce((a, b) => a + b, 0) / xs.length;
+const baseLanguages = lg => [...new Set((lg ?? '').split(',').map(s => s.replace(/\(.*?\)/g, '').trim()).filter(Boolean))];
+
+function readParams(sp) {
+  const list = k => sp.get(k)?.split(',').filter(Boolean) ?? [];
+  const num = k => (sp.get(k) ? Number(sp.get(k)) : null);
+  return {
+    q: sp.get('q') ?? '',
+    sem: sp.get('sem'),
+    prog: num('prog'),
+    dep: list('dep').map(Number),
+    lvl: list('lvl'),
+    lang: list('lang'),
+    type: list('type'),
+    exam: list('exam'),
+    days: list('days').map(Number),
+    from: sp.get('from') ?? '',
+    to: sp.get('to') ?? '',
+    cmin: num('cmin'),
+    cmax: num('cmax'),
+    rmin: num('rmin'),
+    open: sp.get('open') === '1',
+    occurs: sp.get('occurs') === '1',
+    desc: sp.get('desc') === '1',
+    sort: sp.get('sort') ?? 'relevance',
+  };
+}
+
+function readSaved() {
+  try {
+    return JSON.parse(sessionStorage.getItem(SCROLL_KEY));
+  } catch {
+    return null;
+  }
+}
+
+let hoverTimer;
+function prefetch(id) {
+  clearTimeout(hoverTimer);
+  hoverTimer = setTimeout(() => {
+    getUnit(id).catch(() => {});
+    getCourseSchedule(id).catch(() => {});
+  }, 120);
+}
+
+function ResultRow({ u, semkez, onOpen }) {
+  const rating = u.cr ? avg(u.cr) : null;
+  const depList = (u.dp ?? []).map(d => DEPARTMENTS[d]?.[0]).filter(Boolean);
+  const deps = depList.length > 3 ? `${depList.slice(0, 3).join(', ')} +${depList.length - 3}` : depList.join(', ');
+  return (
+    <li>
+      <Link
+        to={`/courses/${u.id}?sem=${semkez}`}
+        state={{ unit: u }}
+        className="result"
+        onClick={onOpen}
+        onPointerEnter={() => prefetch(u.id)}
+        onPointerLeave={() => clearTimeout(hoverTimer)}
+      >
+        <span className="result-no">{u.no}</span>
+        <span className="result-credits">
+          {u.c != null ? <><b>{Number(u.c)}</b> ECTS</> : '–'}
+        </span>
+        <span className="result-title">{u.t}</span>
+        {u.tg && <span className="result-sub">{u.tg}</span>}
+        <span className="result-meta">
+          {u.lv?.map(l => <span key={l} className="tag" title={LEVELS[l]}>{l}</span>)}
+          {u.oc && <span className="tag tag-warn">{OCCURRENCE[u.oc] ?? u.oc}</span>}
+          {u.hr && <span title={u.ty?.map(t => COURSE_TYPES[t]).join(', ')}>{u.hr.join('+')}</span>}
+          {u.lg && <span>{baseLanguages(u.lg).join(' / ')}</span>}
+          {deps && <span>{deps}</span>}
+          {u.ex && <span>{capitalize(u.ex)}</span>}
+          {rating != null && <span className="result-rating" title="CourseReview average">★ {rating.toFixed(1)}</span>}
+        </span>
+        {u.lec && <span className="result-lec">{u.lec.join(', ')}</span>}
+      </Link>
+    </li>
+  );
+}
+
+function CheckList({ options, selected, counts, onToggle }) {
+  return (
+    <ul className="checklist">
+      {options.map(([value, label, hint]) => {
+        const n = counts?.[value] ?? 0;
+        const on = selected.includes(value);
+        return (
+          <li key={value}>
+            <label className={!n && !on ? 'dim' : ''}>
+              <input type="checkbox" checked={on} onChange={() => onToggle(value)} />
+              <span className="checklist-label">
+                {label}
+                {hint && <span className="checklist-hint">{hint}</span>}
+              </span>
+              <span className="count">{fmt(n)}</span>
+            </label>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function ChipToggles({ options, selected, counts, onToggle }) {
+  return (
+    <div className="chips">
+      {options.map(([value, label, title]) => {
+        const on = selected.includes(value);
+        const n = counts?.[value];
+        return (
+          <button
+            type="button"
+            key={value}
+            title={title}
+            className={`chip${on ? ' on' : ''}${counts && !n && !on ? ' dim' : ''}`}
+            aria-pressed={on}
+            onClick={() => onToggle(value)}
+          >
+            {label}
+            {counts && <span className="count">{fmt(n ?? 0)}</span>}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+const SYNTAX = [
+  ['t', 'title (English or German)', 't:analysis'],
+  ['n', 'course number', 'n:252-0027'],
+  ['l', 'lecturer', 'l:Schwerhoff'],
+  ['c', 'credits, also > < >= <= !=', 'c>=6'],
+  ['d', 'descriptions (abstract, content, …)', 'd:"reinforcement learning"'],
+  ['dep', 'department (fuzzy)', 'dep:computer'],
+  ['lvl', 'level: BSC, MSC, DR, …', 'lvl:MSC'],
+  ['o', 'offered in programme / section', 'o:"computer science master" o:"core course"'],
+  ['e', 'exam type', 'e:"session examination"'],
+  ['lang', 'teaching language', 'lang:German'],
+  ['cr', 'CourseReview rating 0–5', 'cr>=4'],
+  ['restricted', 'priority / registration restriction', 'restricted:false'],
+  ['ptg', 'primary target group', 'ptg:"Data Science"'],
 ];
 
-const WEEKDAYS = [
-  { label: 'Mon', value: 0 },
-  { label: 'Tue', value: 1 },
-  { label: 'Wed', value: 2 },
-  { label: 'Thu', value: 3 },
-  { label: 'Fri', value: 4 },
-];
-
-const PAGE_SIZE = 100;
-
-function sectionDisplayName(section) {
-  return section.name_english ?? section.name ?? `Section ${section.id}`;
+function SyntaxHelp({ onExample }) {
+  return (
+    <div className="syntax">
+      <p>
+        Queries with <code>key:value</code> filters, <code>OR</code>, parentheses or <code>-negation</code> are
+        answered by <a href="https://vvzapi.ch/guide" target="_blank" rel="noreferrer">vvzapi.ch</a> for the
+        selected semester. Plain text uses the instant typo-tolerant search.
+      </p>
+      <table>
+        <tbody>
+          {SYNTAX.map(([key, what, example]) => (
+            <tr key={key}>
+              <th><code>{key}</code></th>
+              <td>
+                {what}
+                <button type="button" className="syntax-example" onClick={() => onExample(example)}>{example}</button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
-function buildQuery(text, sectionPath, semester, year, credits) {
-  const parts = [];
-  for (const section of sectionPath) {
-    parts.push(`off:"${section.name}"`);
-  }
-  if (text.trim()) parts.push(text.trim());
-  if (semester) parts.push(`s:${semester}`);
-  if (year) parts.push(`year:${year}`);
-  else parts.push('year>=2020');
-  if (credits > 0) parts.push(`credits:${credits}`);
-  return parts.join(' ');
-}
+function CourseSearch() {
+  const [sp, setSp] = useSearchParams();
+  const key = sp.toString();
+  const p = useMemo(() => readParams(new URLSearchParams(key)), [key]);
 
-function semkezRank(semkez) {
-  if (!semkez || semkez.length < 5) return 0;
-  const year = parseInt(semkez.slice(0, 4), 10);
-  return year * 2 + (semkez[4] === 'W' ? 1 : 0);
-}
-
-function deduplicateByTitle(courses) {
-  const seen = new Map(); // title → course
-  for (const course of courses) {
-    const unit = course.units?.[0] ?? {};
-    const title = unit.title_english || unit.title || '';
-    if (!title) continue;
-    const existing = seen.get(title);
-    if (!existing) {
-      seen.set(title, course);
-    } else {
-      const existingRank = semkezRank(existing.units?.[0]?.semkez);
-      const currentRank = semkezRank(unit.semkez);
-      if (currentRank > existingRank) seen.set(title, course);
-    }
-  }
-  return [...seen.values()];
-}
-
-function CourseSearch({ timetableCourses = [], onToggleCourse }) {
-  const location = useLocation();
-  const navigate = useNavigate();
-  const [query, setQuery] = useState('');
-  const [semester, setSemester] = useState(null);
-  const [year, setYear] = useState('');
-  const [years, setYears] = useState([]);
-  const [credits, setCredits] = useState(0);
-  const [latestSemkez, setLatestSemkez] = useState('');
-
-  // Section hierarchy state
-  // sectionPath[0] = selected programme, sectionPath[1] = first sub-selection, etc.
-  const [sectionPath, setSectionPath] = useState([]);
-  // levelOptions[i] = children of sectionPath[i], shown as the filter row at depth i+1
-  const [levelOptions, setLevelOptions] = useState([]);
-  const [sectionLoading, setSectionLoading] = useState(false);
-
-  // Programme autocomplete
-  const [programQuery, setProgramQuery] = useState('');
-  const [programOptions, setProgramOptions] = useState([]);
-  const [programLoading, setProgramLoading] = useState(false);
-  const [programDropdownOpen, setProgramDropdownOpen] = useState(false);
-  const programInputRef = useRef(null);
-  const programDebounceRef = useRef(null);
-
-  const [dayFilter, setDayFilter] = useState([]); // array of selected weekday indices
-  const [startTime, setStartTime] = useState('');
-  const [endTime, setEndTime] = useState('');
-  const [courseSchedules, setCourseSchedules] = useState({});
-  const schedFetchedRef = useRef(new Set());
-
-  const [courses, setCourses] = useState([]);
-  const [total, setTotal] = useState(null);
-  const [loadingInitial, setLoadingInitial] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const [manifest, setManifest] = useState(null);
+  const [meta, setMeta] = useState(null);
+  const [res, setRes] = useState(null);
   const [error, setError] = useState(null);
-  const debounceRef = useRef(null);
-  const observerRef = useRef(null);
-  const effectiveQueryRef = useRef('');
-  const offsetRef = useRef(0);
-  const loadingInitialRef = useRef(false);
-  const loadingMoreRef = useRef(false);
+  const [saved] = useState(readSaved);
+  const [page, setPage] = useState(() => (saved?.key === key ? { key, limit: saved.limit } : { key: null, limit: PAGE }));
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const restored = useRef(false);
+  const inputRef = useRef(null);
 
-  // Apply filter preset passed via navigation state (e.g. from timetable popup)
-  useEffect(() => {
-    if (!location.state) return;
-    const { presetDays, presetStart, presetEnd } = location.state;
-    if (presetDays?.length) setDayFilter(presetDays);
-    if (presetStart) setStartTime(presetStart);
-    if (presetEnd) setEndTime(presetEnd);
-    // Clear state so back-navigation doesn't re-apply
-    navigate(location.pathname, { replace: true, state: null });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const semkez = p.sem ?? manifest?.latest;
+  const advanced = isAdvancedQuery(p.q);
+  const limit = page.key === key ? page.limit : PAGE;
+  const resKey = `${semkez}|${key}|${limit}`;
+  const loading = !res || res.key !== resKey;
+
+  const update = useCallback(changes => {
+    setSp(prev => {
+      const next = new URLSearchParams(prev);
+      for (const [k, v] of Object.entries(changes)) {
+        const s = Array.isArray(v) ? v.join(',') : v === true ? '1' : v === false || v == null ? '' : String(v);
+        if (s) next.set(k, s);
+        else next.delete(k);
+      }
+      return next;
+    }, { replace: true });
+  }, [setSp]);
+
+  const toggle = (k, value) => update({ [k]: p[k].includes(value) ? p[k].filter(v => v !== value) : [...p[k], value] });
 
   useEffect(() => {
-    getSemesters()
-      .then(semesters => {
-        const unique = [...new Set(semesters.map(s => s.slice(0, 4)))]
-          .filter(y => Number(y) >= 2020)
-          .sort((a, b) => b - a);
-        setYears(unique);
-        const sorted = [...semesters].sort((a, b) => b.localeCompare(a));
-        if (sorted.length) setLatestSemkez(sorted[0]);
+    loadSemesters().then(setManifest).catch(e => setError(e.message));
+  }, []);
+
+  useEffect(() => {
+    if (!semkez) return;
+    let alive = true;
+    call('meta', { semkez })
+      .then(m => alive && setMeta({ semkez, ...m }))
+      .catch(e => alive && setError(e.message));
+    return () => { alive = false; };
+  }, [semkez]);
+
+  useEffect(() => {
+    if (!semkez) return;
+    let alive = true;
+    const run = () => call(advanced ? 'live' : 'search', { ...p, q: p.q.trim(), semkez, limit })
+      .then(r => {
+        if (!alive) return;
+        setRes({ ...r, key: `${semkez}|${key}|${limit}`, advanced });
+        setError(null);
       })
-      .catch(() => {});
+      .catch(e => alive && setError(e.message));
+    // Local search answers in milliseconds; only vvzapi.ch queries wait for typing to pause.
+    const timer = setTimeout(run, advanced ? 400 : 0);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [semkez, key, p, limit, advanced]);
+
+  // Coming back from a course page: restore how far the list was scrolled.
+  useEffect(() => {
+    if (restored.current || loading || saved?.key !== key) return;
+    restored.current = true;
+    window.scrollTo(0, saved.y);
+  }, [loading, saved, key]);
+
+  useEffect(() => {
+    const onKey = e => {
+      if (e.key === '/' && !['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName)) {
+        e.preventDefault();
+        inputRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  // Programme search autocomplete
   useEffect(() => {
-    clearTimeout(programDebounceRef.current);
-    if (!programQuery.trim() || !latestSemkez) {
-      setProgramOptions([]);
-      setProgramLoading(false);
-      return;
-    }
-    setProgramLoading(true);
-    programDebounceRef.current = setTimeout(async () => {
-      try {
-        const ids = await getSectionIds({ level: 0, semkez: latestSemkez, nameSearch: programQuery.trim(), limit: 20 });
-        const sections = await Promise.all(ids.map(id => getSection(id)));
-        setProgramOptions(sections.map(s => ({ id: s.id, name: sectionDisplayName(s) })));
-      } catch {
-        setProgramOptions([]);
-      } finally {
-        setProgramLoading(false);
-      }
-    }, 300);
-    return () => clearTimeout(programDebounceRef.current);
-  }, [programQuery, latestSemkez]);
+    document.body.style.overflow = filtersOpen ? 'hidden' : '';
+    return () => { document.body.style.overflow = ''; };
+  }, [filtersOpen]);
 
-  async function fetchChildren(sectionId) {
-    const childIds = await getSectionIds({ parentId: sectionId, limit: 100 });
-    if (!childIds.length) return [];
-    const children = await Promise.all(childIds.map(id => getSection(id)));
-    return children.map(s => ({ id: s.id, name: sectionDisplayName(s) }));
-  }
-
-  async function drillInto(section, depth) {
-    // depth = index in sectionPath where section is being selected
-    // Toggle off if already selected
-    if (sectionPath[depth]?.id === section.id) {
-      setSectionPath(prev => prev.slice(0, depth));
-      setLevelOptions(prev => prev.slice(0, depth));
-      return;
-    }
-
-    setSectionPath(prev => [...prev.slice(0, depth), section]);
-    setLevelOptions(prev => prev.slice(0, depth));
-    setSectionLoading(true);
+  const remember = () => {
     try {
-      const children = await fetchChildren(section.id);
-      if (children.length > 0) {
-        setLevelOptions(prev => [...prev.slice(0, depth), children]);
-      }
-    } catch {
-      // no children shown
-    } finally {
-      setSectionLoading(false);
-    }
-  }
+      sessionStorage.setItem(SCROLL_KEY, JSON.stringify({ key, limit, y: window.scrollY }));
+    } catch { /* storage unavailable */ }
+  };
 
-  function selectProgram(program) {
-    setProgramQuery('');
-    setProgramDropdownOpen(false);
-    setSectionPath([]);
-    setLevelOptions([]);
-    drillInto(program, 0);
-  }
+  const hasMore = res && !loading && res.items.length < res.total;
+  const sentinel = useCallback(node => {
+    if (!node) return;
+    const io = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) setPage({ key, limit: limit + PAGE });
+    }, { rootMargin: '600px' });
+    io.observe(node);
+    return () => io.disconnect();
+  }, [key, limit]);
 
-  function clearProgram() {
-    setSectionPath([]);
-    setLevelOptions([]);
-    setProgramQuery('');
-  }
+  const facets = !advanced && res?.facets;
+  const metaReady = meta != null && meta.semkez === semkez;
+  const sections = metaReady ? meta.sections : null;
+  const hasTimes = metaReady ? meta.hasTimes : true;
+  const sectionName = sections?.find(s => s.id === p.prog)?.name;
 
-  // Reset and fetch first page whenever filters change
-  useEffect(() => {
-    const effectiveQuery = buildQuery(query, sectionPath, semester, year, credits);
-    effectiveQueryRef.current = effectiveQuery;
-    offsetRef.current = 0;
-    // Reset any in-flight loadMore so it doesn't block future calls
-    loadingMoreRef.current = false;
+  const active = [
+    p.prog != null && { label: sectionName ?? 'Programme', clear: { prog: null } },
+    ...p.dep.map(d => ({ label: DEPARTMENTS[d]?.[0] ?? d, clear: { dep: p.dep.filter(x => x !== d) } })),
+    ...p.lvl.map(l => ({ label: l, clear: { lvl: p.lvl.filter(x => x !== l) } })),
+    (p.cmin != null || p.cmax != null) && {
+      label: p.cmin === p.cmax ? `${p.cmin} ECTS` : `${p.cmin ?? 0}–${p.cmax ?? '∞'} ECTS`,
+      clear: { cmin: null, cmax: null },
+    },
+    ...p.type.map(t => ({ label: COURSE_TYPES[t] ?? t, clear: { type: p.type.filter(x => x !== t) } })),
+    ...p.lang.map(l => ({ label: l, clear: { lang: p.lang.filter(x => x !== l) } })),
+    ...p.exam.map(x => ({ label: capitalize(x), clear: { exam: p.exam.filter(y => y !== x) } })),
+    (p.days.length > 0 || p.from || p.to) && {
+      label: [p.days.map(d => WEEKDAYS[d]).join(', '), (p.from || p.to) && `${p.from || '…'}–${p.to || '…'}`].filter(Boolean).join(' '),
+      clear: { days: null, from: null, to: null },
+    },
+    p.open && { label: 'Open registration', clear: { open: null } },
+    p.occurs && { label: 'Taking place', clear: { occurs: null } },
+    p.rmin != null && { label: `★ ≥ ${p.rmin}`, clear: { rmin: null } },
+  ].filter(Boolean);
+  const clearAll = Object.assign({}, ...active.map(a => a.clear));
 
-    setCourses([]);
-    setTotal(null);
-    setError(null);
-    setLoadingMore(false);
+  const languages = facets ? Object.keys(facets.lang).sort((a, b) => facets.lang[b] - facets.lang[a]) : p.lang;
+  const exams = facets ? Object.keys(facets.exam).sort((a, b) => facets.exam[b] - facets.exam[a]) : p.exam;
 
-    clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(async () => {
-      loadingInitialRef.current = true;
-      setLoadingInitial(true);
-      try {
-        const data = await searchCourses(effectiveQuery, { limit: PAGE_SIZE, offset: 0 });
-        if (effectiveQueryRef.current !== effectiveQuery) return;
-        const list = Object.values(data.results ?? {});
-        setCourses(list);
-        setTotal(data.total ?? list.length);
-        offsetRef.current = list.length;
-      } catch (e) {
-        if (effectiveQueryRef.current !== effectiveQuery) return;
-        setError(e.message);
-      } finally {
-        if (effectiveQueryRef.current === effectiveQuery) {
-          loadingInitialRef.current = false;
-          setLoadingInitial(false);
-        }
-      }
-    }, 400);
+  const filterPanel = advanced ? (
+    <SyntaxHelp onExample={ex => update({ q: ex })} />
+  ) : (
+    <>
+      <details className="filter-group" open>
+        <summary>Programme</summary>
+        {sections ? (
+          <ProgrammePicker sections={sections} value={p.prog} onChange={id => update({ prog: id })} />
+        ) : <p className="filter-note">Loading sections…</p>}
+      </details>
 
-    return () => clearTimeout(debounceRef.current);
-  }, [query, sectionPath, semester, year, credits]);
+      <details className="filter-group" open>
+        <summary>Department</summary>
+        <CheckList
+          options={Object.entries(DEPARTMENTS).map(([id, [short, name]]) => [Number(id), short, name])}
+          selected={p.dep}
+          counts={facets?.dep}
+          onToggle={v => toggle('dep', v)}
+        />
+      </details>
 
-  const loadMore = useCallback(async () => {
-    if (loadingMoreRef.current || loadingInitialRef.current) return;
-    const effectiveQuery = effectiveQueryRef.current;
-    const currentOffset = offsetRef.current;
+      <details className="filter-group" open>
+        <summary>Level</summary>
+        <ChipToggles
+          options={Object.entries(LEVELS)
+            .filter(([l]) => facets?.lvl[l] || p.lvl.includes(l))
+            .map(([l, name]) => [l, l, name])}
+          selected={p.lvl}
+          counts={facets?.lvl}
+          onToggle={v => toggle('lvl', v)}
+        />
+      </details>
 
-    loadingMoreRef.current = true;
-    setLoadingMore(true);
-    try {
-      const data = await searchCourses(effectiveQuery, { limit: PAGE_SIZE, offset: currentOffset });
-      if (effectiveQueryRef.current !== effectiveQuery) return;
-      const list = Object.values(data.results ?? {});
-      setCourses(prev => [...prev, ...list]);
-      offsetRef.current = currentOffset + list.length;
-    } catch (e) {
-      if (effectiveQueryRef.current !== effectiveQuery) return;
-      setError(e.message);
-    } finally {
-      if (effectiveQueryRef.current === effectiveQuery) {
-        loadingMoreRef.current = false;
-        setLoadingMore(false);
-      }
-    }
-  }, []);
+      <details className="filter-group" open>
+        <summary>ECTS credits</summary>
+        <div className="range">
+          <label>
+            <span>Min</span>
+            <input type="number" inputMode="decimal" min="0" max="60" step="1" value={p.cmin ?? ''} placeholder="0"
+              onChange={e => update({ cmin: e.target.value === '' ? null : e.target.value })} />
+          </label>
+          <span aria-hidden="true">–</span>
+          <label>
+            <span>Max</span>
+            <input type="number" inputMode="decimal" min="0" max="60" step="1" value={p.cmax ?? ''} placeholder="any"
+              onChange={e => update({ cmax: e.target.value === '' ? null : e.target.value })} />
+          </label>
+        </div>
+        <div className="chips chips-quick">
+          {[2, 3, 4, 5, 6, 7, 8, 10].map(c => (
+            <button type="button" key={c} className={`chip${p.cmin === c && p.cmax === c ? ' on' : ''}`}
+              onClick={() => update(p.cmin === c && p.cmax === c ? { cmin: null, cmax: null } : { cmin: c, cmax: c })}>
+              {c}
+            </button>
+          ))}
+        </div>
+      </details>
 
-  // Callback ref: sets up / tears down the IntersectionObserver
-  // whenever the sentinel div mounts or unmounts.
-  const sentinelRef = useCallback((node) => {
-    if (observerRef.current) {
-      observerRef.current.disconnect();
-      observerRef.current = null;
-    }
-    if (node) {
-      observerRef.current = new IntersectionObserver(
-        ([entry]) => { if (entry.isIntersecting) loadMore(); },
-        { rootMargin: '200px' }
-      );
-      observerRef.current.observe(node);
-    }
-  }, [loadMore]);
+      <details className="filter-group" open>
+        <summary>Course type</summary>
+        <ChipToggles
+          options={Object.entries(COURSE_TYPES)
+            .filter(([t]) => facets?.type[t] || p.type.includes(t))
+            .map(([t, name]) => [t, name, t])}
+          selected={p.type}
+          counts={facets?.type}
+          onToggle={v => toggle('type', v)}
+        />
+      </details>
 
-  // Fetch schedules for visible courses when any schedule-based filter is active
-  const needsSchedule = dayFilter.length > 0 || startTime !== '' || endTime !== '';
-  useEffect(() => {
-    if (!needsSchedule) return;
-    const deduped = deduplicateByTitle(courses);
-    const visible = credits > 0
-      ? deduped.filter(c => (c.units?.[0]?.credits ?? null) === credits)
-      : deduped;
-    for (const course of visible) {
-      const unitId = course.units?.[0]?.id;
-      if (!unitId || schedFetchedRef.current.has(unitId)) continue;
-      schedFetchedRef.current.add(unitId);
-      getCourseSchedule(unitId)
-        .then(data => setCourseSchedules(prev => ({ ...prev, [unitId]: data })))
-        .catch(() => setCourseSchedules(prev => ({ ...prev, [unitId]: [] })));
-    }
-  }, [needsSchedule, courses, credits]);
+      <details className="filter-group" open={p.lang.length > 0}>
+        <summary>Language</summary>
+        <CheckList options={languages.map(l => [l, l])} selected={p.lang} counts={facets?.lang} onToggle={v => toggle('lang', v)} />
+      </details>
 
-  const hasMore = total !== null && courses.length < total;
-  const deduped = deduplicateByTitle(courses);
-  const creditFiltered = credits > 0
-    ? deduped.filter(c => (c.units?.[0]?.credits ?? null) === credits)
-    : deduped;
-  const displayCourses = !needsSchedule
-    ? creditFiltered
-    : creditFiltered.filter(c => {
-        const sched = courseSchedules[c.units?.[0]?.id];
-        if (sched === undefined) return true; // still loading — keep visible
-        return sched.some(entry => entry.timeslots?.some(ts => {
-          if (dayFilter.length > 0 && !dayFilter.includes(ts.weekday)) return false;
-          if (startTime && ts.start_time < startTime) return false;
-          if (endTime && ts.end_time > endTime) return false;
-          return true;
-        }));
-      });
-  const selectedProgram = sectionPath[0] ?? null;
+      <details className="filter-group" open={p.exam.length > 0}>
+        <summary>Performance assessment</summary>
+        <CheckList options={exams.map(x => [x, capitalize(x)])} selected={p.exam} counts={facets?.exam} onToggle={v => toggle('exam', v)} />
+      </details>
+
+      <details className="filter-group" open={p.days.length > 0 || !!p.from || !!p.to}>
+        <summary>Day &amp; time</summary>
+        {!hasTimes && (
+          <p className="filter-note">vvzapi.ch has no lecture times for {semesterLabel(semkez)} yet, so this filter is off.</p>
+        )}
+        <fieldset disabled={!hasTimes}>
+          <div className="chips">
+            {WEEKDAYS.slice(0, 6).map((d, i) => (
+              <button type="button" key={d} className={`chip${p.days.includes(i) ? ' on' : ''}`} aria-pressed={p.days.includes(i)}
+                onClick={() => toggle('days', i)}>{d}</button>
+            ))}
+          </div>
+          <div className="range">
+            <label>
+              <span>From</span>
+              <input type="time" step="900" value={p.from} onChange={e => update({ from: e.target.value })} />
+            </label>
+            <span aria-hidden="true">–</span>
+            <label>
+              <span>Until</span>
+              <input type="time" step="900" value={p.to} onChange={e => update({ to: e.target.value })} />
+            </label>
+          </div>
+        </fieldset>
+      </details>
+
+      <details className="filter-group" open={p.open || p.occurs || p.rmin != null}>
+        <summary>More</summary>
+        <label className="check">
+          <input type="checkbox" checked={p.open} onChange={e => update({ open: e.target.checked })} />
+          No registration restriction
+        </label>
+        <label className="check">
+          <input type="checkbox" checked={p.occurs} onChange={e => update({ occurs: e.target.checked })} />
+          Hide courses not taking place
+        </label>
+        <label className="select-row">
+          <span>CourseReview rating</span>
+          <select value={p.rmin ?? ''} onChange={e => update({ rmin: e.target.value || null })}>
+            <option value="">Any</option>
+            {[3, 3.5, 4, 4.5].map(r => <option key={r} value={r}>★ {r}+</option>)}
+          </select>
+        </label>
+      </details>
+    </>
+  );
 
   return (
-    <main className="course-search">
-      <div className="search-header">
-        <h2>Course Search</h2>
-        <input
-          className="search-input"
-          type="text"
-          placeholder='Search for courses here...'
-          value={query}
-          onChange={e => setQuery(e.target.value)}
-          autoFocus
-        />
-        <div className="filters">
-          {SEMESTERS.map(({ label, value }) => (
-            <button
-              key={value}
-              className={`filter-btn${semester === value ? ' active' : ''}`}
-              onClick={() => setSemester(prev => prev === value ? null : value)}
-            >
-              {label}
-            </button>
-          ))}
-          <div className="filter-divider" />
-          <select
-            className="filter-select"
-            value={year}
-            onChange={e => setYear(e.target.value)}
-          >
-            <option value="">All years</option>
-            {years.map(y => (
-              <option key={y} value={y}>{y}</option>
-            ))}
-          </select>
-          <div className="filter-divider" />
-          {WEEKDAYS.map(({ label, value }) => (
-            <button
-              key={value}
-              className={`filter-btn${dayFilter.includes(value) ? ' active' : ''}`}
-              onClick={() => setDayFilter(prev =>
-                prev.includes(value) ? prev.filter(d => d !== value) : [...prev, value]
-              )}
-            >
-              {label}
-            </button>
-          ))}
-          <div className="filter-divider" />
-          <span className="filter-row-label">Time:</span>
-          <input
-            type="time"
-            className="time-input"
-            value={startTime}
-            onChange={e => setStartTime(e.target.value)}
-          />
-          <span className="filter-row-label">–</span>
-          <input
-            type="time"
-            className="time-input"
-            value={endTime}
-            onChange={e => setEndTime(e.target.value)}
-          />
-        </div>
-
-        {/* Programme picker */}
-        <div className="filter-row">
-          <span className="filter-row-label">Programme:</span>
-          {selectedProgram ? (
-            <span className="program-chip">
-              {selectedProgram.name}
-              <button className="program-chip-clear" onClick={clearProgram} aria-label="Clear programme">×</button>
-            </span>
-          ) : (
-            <div className="program-search-wrap">
+    <main className="search">
+      <section className="search-hero">
+        <div className="container">
+          <h1 className="search-heading">Course catalogue</h1>
+          <form className="searchbar" role="search" onSubmit={e => { e.preventDefault(); inputRef.current?.blur(); }}>
+            <label className="searchbox">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m15.5 15.5 5 5" /></svg>
               <input
-                ref={programInputRef}
-                className="program-search-input"
-                type="text"
-                placeholder="Search study programme…"
-                value={programQuery}
-                onChange={e => { setProgramQuery(e.target.value); setProgramDropdownOpen(true); }}
-                onFocus={() => { if (programQuery.trim()) setProgramDropdownOpen(true); }}
-                onBlur={() => setTimeout(() => setProgramDropdownOpen(false), 150)}
+                ref={inputRef}
+                type="search"
+                enterKeyHint="search"
+                autoComplete="off"
+                spellCheck="false"
+                placeholder="Title, number or lecturer — typos are fine"
+                value={p.q}
+                onChange={e => update({ q: e.target.value })}
+                aria-label="Search courses"
               />
-              {programDropdownOpen && (programOptions.length > 0 || programLoading) && (
-                <ul className="program-dropdown">
-                  {programLoading && <li className="program-dropdown-status">Searching…</li>}
-                  {!programLoading && programOptions.map(opt => (
-                    <li key={opt.id}>
-                      <button className="program-dropdown-item" onMouseDown={() => selectProgram(opt)}>
-                        {opt.name}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
+            </label>
+            <label className="semester">
+              <span className="visually-hidden">Semester</span>
+              <select value={semkez ?? ''} onChange={e => update({ sem: e.target.value, prog: null })}>
+                {!manifest && <option value="">…</option>}
+                {manifest?.semesters.map(s => (
+                  <option key={s.semkez} value={s.semkez}>{semesterLabel(s.semkez)} · {semesterName(s.semkez)}</option>
+                ))}
+              </select>
+            </label>
+          </form>
+          <div className="search-options">
+            <label className="check">
+              <input type="checkbox" checked={p.desc} disabled={advanced} onChange={e => update({ desc: e.target.checked })} />
+              Also search descriptions
+            </label>
+            {advanced
+              ? <span className="mode-badge">Advanced query · vvzapi.ch</span>
+              : <details className="syntax-toggle">
+                  <summary>Advanced syntax</summary>
+                  <SyntaxHelp onExample={ex => update({ q: ex })} />
+                </details>}
+          </div>
+        </div>
+      </section>
+
+      <div className="container search-body">
+        <aside className={`filters${filtersOpen ? ' open' : ''}`} aria-label="Filters">
+          <div className="filters-backdrop" onClick={() => setFiltersOpen(false)} />
+          <div className="filters-panel">
+            <div className="filters-head">
+              <h2>{advanced ? 'Query syntax' : 'Filters'}</h2>
+              {active.length > 0 && !advanced && (
+                <button type="button" className="link-btn" onClick={() => update(clearAll)}>Reset all</button>
               )}
             </div>
-          )}
-        </div>
-
-        {/* Dynamic sub-level filter rows */}
-        {levelOptions.map((options, levelIndex) => (
-          <div key={levelIndex} className="filter-row filter-row--sub">
-            <span className="filter-row-label">{sectionPath[levelIndex].name}:</span>
-            {options.map(opt => (
-              <button
-                key={opt.id}
-                className={`filter-btn${sectionPath[levelIndex + 1]?.id === opt.id ? ' active' : ''}`}
-                onClick={() => drillInto(opt, levelIndex + 1)}
-              >
-                {opt.name}
+            {filterPanel}
+            <div className="filters-foot">
+              <button type="button" className="btn-primary" onClick={() => setFiltersOpen(false)}>
+                Show {res ? fmt(res.total) : ''} courses
               </button>
-            ))}
-            {sectionLoading && levelIndex === levelOptions.length - 1 && (
-              <span className="filter-row-label">…</span>
-            )}
+            </div>
           </div>
-        ))}
+        </aside>
 
-        <div className="credits-filter">
-          <span className="credits-label">Credits:</span>
-          <input
-            type="number"
-            className="credits-input"
-            min={0}
-            max={30}
-            value={credits || ''}
-            placeholder="Any"
-            onKeyDown={e => { if (!/[\d]|Backspace|Delete|ArrowLeft|ArrowRight|Tab/.test(e.key)) e.preventDefault(); }}
-            onChange={e => {
-              const v = e.target.value === '' ? 0 : Math.min(30, Math.max(0, Number(e.target.value)));
-              setCredits(v);
-            }}
-          />
-        </div>
-        {total !== null && !loadingInitial && (
-          <p className="result-count">{total} result{total !== 1 ? 's' : ''}</p>
-        )}
-      </div>
+        <section className="results" aria-live="polite" aria-busy={loading}>
+          <div className="results-bar">
+            <p className="results-count">
+              {res ? <><b>{fmt(res.total)}</b> {res.total === 1 ? 'course' : 'courses'}</> : 'Loading courses…'}
+              {res && semkez && <> in {semesterLabel(semkez)}</>}
+              {res?.ms != null && <span className="results-ms"> · {res.advanced ? 'vvzapi.ch ' : ''}{res.ms} ms</span>}
+            </p>
+            <div className="results-tools">
+              <button type="button" className="filters-btn" onClick={() => setFiltersOpen(true)}>
+                {advanced ? 'Syntax' : 'Filters'}{!advanced && active.length > 0 && <span className="filters-btn-count">{active.length}</span>}
+              </button>
+              <label className="sort">
+                <span>Sort</span>
+                <select value={p.sort} onChange={e => update({ sort: e.target.value === 'relevance' ? null : e.target.value })}>
+                  <option value="relevance">{p.q.trim() && !advanced ? 'Best match' : 'Number'}</option>
+                  <option value="title">Title</option>
+                  <option value="credits">ECTS</option>
+                  <option value="rating">Rating</option>
+                </select>
+              </label>
+            </div>
+          </div>
 
-      {loadingInitial && <p className="status">Searching…</p>}
-      {error && <p className="status error">{error}</p>}
-
-      {!loadingInitial && displayCourses.length > 0 && (
-        <ul className="results-list">
-          {displayCourses.map(course => {
-            const unit = course.units?.[0] ?? {};
-            const title = unit.title_english || unit.title || '—';
-            const levels = unit.levels?.join(', ');
-            const isAdded = timetableCourses.some(c => c.id === unit.id);
-            return (
-              <li key={course.number} className="result-row">
-                <Link to={`/courses/${unit.id}`} className="result-item">
-                  <div className="result-main">
-                    <span className="result-number">{course.number}</span>
-                    <span className="result-title">{title}</span>
-                  </div>
-                  <div className="result-meta">
-                    {unit.credits != null && <span>{unit.credits} ECTS</span>}
-                    {unit.language && <span>{unit.language}</span>}
-                    {levels && <span>{levels}</span>}
-                    {unit.semkez && <span>{unit.semkez}</span>}
-                  </div>
-                </Link>
-                <button
-                  className={`add-to-tt-btn${isAdded ? ' added' : ''}`}
-                  onClick={() => onToggleCourse({ id: unit.id, title, number: course.number })}
-                  aria-label={isAdded ? 'Remove from timetable' : 'Add to timetable'}
-                  title={isAdded ? 'Remove from timetable' : 'Add to timetable'}
-                >
-                  {isAdded ? '✓' : '+'}
+          {!advanced && active.length > 0 && (
+            <div className="active-filters">
+              {active.map(a => (
+                <button type="button" key={a.label} className="active-chip" onClick={() => update(a.clear)}>
+                  {a.label}<span aria-hidden="true">×</span><span className="visually-hidden">remove filter</span>
                 </button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
+              ))}
+              {active.length > 1 && <button type="button" className="link-btn" onClick={() => update(clearAll)}>Clear all</button>}
+            </div>
+          )}
 
-      {hasMore && !loadingInitial && (
-        <div ref={sentinelRef} className="sentinel">
-          {loadingMore && <p className="status">Loading…</p>}
-        </div>
-      )}
+          {advanced && res?.parsed && <p className="parsed">Parsed as <code>{res.parsed}</code></p>}
+          {loading && <div className="progress" aria-hidden="true" />}
+          {error && <p className="status error">{error}</p>}
 
-      {!loadingInitial && total === 0 && (
-        <p className="status">No courses found.</p>
-      )}
+          {res && res.items.length > 0 && (
+            <ol className="result-list">
+              {res.items.map(u => <ResultRow key={u.id} u={u} semkez={semkez} onOpen={remember} />)}
+            </ol>
+          )}
+          {hasMore && <div ref={sentinel} className="sentinel" />}
+
+          {res && !loading && res.total === 0 && (
+            <div className="empty">
+              <p>No courses match{p.q.trim() ? <> “{p.q.trim()}”</> : ''}.</p>
+              <div className="empty-actions">
+                {active.length > 0 && !advanced && <button type="button" className="btn-secondary" onClick={() => update(clearAll)}>Clear filters</button>}
+                {!p.desc && !advanced && p.q.trim() && <button type="button" className="btn-secondary" onClick={() => update({ desc: true })}>Search descriptions too</button>}
+              </div>
+            </div>
+          )}
+        </section>
+      </div>
     </main>
   );
 }

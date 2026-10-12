@@ -1,16 +1,68 @@
+/* ETH Zurich corporate palette (ethz.ch/en/the-eth-zurich/corporate-design) */
 :root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  --blue: #215caf;
+  --blue-strong: #1f407a;
+  --blue-10: #e9eff7;
+  --blue-20: #d3deef;
+  --petrol: #007894;
+  --green: #627313;
+  --bronze: #8e6713;
+  --red: #b7352d;
+
+  --text: #1f1f1f;
+  --muted: #6f6f6f;
+  --line: #e2e2e2;
+  --line-strong: #c5c5c5;
+  --bg: #ffffff;
+  --bg-soft: #f4f4f4;
+  --surface: #ffffff;
+  --on-blue: #ffffff;
+  --shadow: 0 8px 28px rgba(0, 0, 0, 0.12);
+
+  --header-h: 60px;
+  --gutter: 16px;
+  --radius: 2px;
+
+  font-family: 'DINPro', 'DIN Next LT Pro', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
-
   color-scheme: light dark;
-  color: #111;
-  background-color: #fff;
-
+  color: var(--text);
+  background-color: var(--bg);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --blue: #7a9dcf;
+    --blue-strong: #a6bedf;
+    --blue-10: #18243a;
+    --blue-20: #22365a;
+    --petrol: #4fa9bf;
+    --green: #a2b45a;
+    --bronze: #c9a35a;
+    --red: #e07a72;
+
+    --text: #ececec;
+    --muted: #a3a3a3;
+    --line: #2c2c2c;
+    --line-strong: #474747;
+    --bg: #121212;
+    --bg-soft: #0c0c0c;
+    --surface: #1a1a1a;
+    --on-blue: #0c1626;
+    --shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+  }
+}
+
+@media (min-width: 900px) {
+  :root {
+    --gutter: 32px;
+  }
 }
 
 *, *::before, *::after {
@@ -21,15 +73,38 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  background: var(--bg);
 }
 
 h1, h2, h3 {
   margin: 0;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #f5f5f5;
-    background-color: #111;
-  }
+a {
+  color: var(--blue);
+}
+
+button, input, select {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+.container {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 0 var(--gutter);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }

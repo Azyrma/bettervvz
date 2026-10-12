@@ -1,56 +1,49 @@
 const BASE = 'https://vvzapi.ch';
+const cache = new Map();
 
-export async function searchCourses(q, { limit = 20, offset = 0, orderBy = 'title_english', order = 'asc' } = {}) {
+// One request per URL per session; the service worker additionally keeps responses across visits.
+function getJson(path, what) {
+  if (!cache.has(path)) {
+    cache.set(path, fetch(`${BASE}${path}`)
+      .then(res => {
+        if (!res.ok) throw new Error(`${what} failed: ${res.status}`);
+        return res.json();
+      })
+      .catch(e => {
+        cache.delete(path);
+        throw e;
+      }));
+  }
+  return cache.get(path);
+}
+
+// Not memoized here: results are ~37 KB per course, so the search worker caches only what it keeps.
+export async function searchCourses(q, { limit = 20, offset = 0, orderBy = 'number', order = 'asc' } = {}) {
   const params = new URLSearchParams({ q, limit, offset, order_by: orderBy, order });
   const res = await fetch(`${BASE}/api/v2/search?${params}`);
   if (!res.ok) throw new Error(`Search failed: ${res.status}`);
   return res.json(); // { total, results, parsed_query, exec_time_ms }
 }
 
-export async function getUnit(unitId) {
-  const res = await fetch(`${BASE}/api/v1/unit/${unitId}/get`);
-  if (!res.ok) throw new Error(`Unit fetch failed: ${res.status}`);
-  return res.json();
+export function getUnit(unitId) {
+  return getJson(`/api/v1/unit/${unitId}/get`, 'Unit fetch');
 }
 
 export async function getUnitLecturers(unitId) {
-  const res = await fetch(`${BASE}/api/v1/unit/${unitId}/lecturers`);
-  if (!res.ok) throw new Error(`Lecturers fetch failed: ${res.status}`);
-  const ids = await res.json(); // array of lecturer IDs
+  const ids = await getJson(`/api/v1/unit/${unitId}/lecturers`, 'Lecturers fetch');
   return Promise.all(ids.map(id => getLecturer(id)));
 }
 
-export async function getLecturer(lecturerId) {
-  const res = await fetch(`${BASE}/api/v1/lecturer/get/${lecturerId}`);
-  if (!res.ok) throw new Error(`Lecturer fetch failed: ${res.status}`);
-  return res.json(); // { id, title, name, surname, department }
+export async function getUnitExaminers(unitId) {
+  const ids = await getJson(`/api/v1/unit/${unitId}/examiners`, 'Examiners fetch');
+  return Promise.all(ids.map(id => getLecturer(id)));
 }
 
-export async function getCourseSchedule(unitId) {
-  const res = await fetch(`${BASE}/api/v1/course/get/${unitId}`);
-  if (!res.ok) throw new Error(`Schedule fetch failed: ${res.status}`);
-  return res.json(); // array of { type, timeslots: [{ weekday, start_time, end_time, building, floor, room }] }
+export function getLecturer(lecturerId) {
+  return getJson(`/api/v1/lecturer/get/${lecturerId}`, 'Lecturer fetch'); // { id, title, name, surname, department }
 }
 
-export async function getSemesters() {
-  const res = await fetch(`${BASE}/api/v1/misc/semesters`);
-  if (!res.ok) throw new Error(`Semesters fetch failed: ${res.status}`);
-  return res.json();
-}
-
-export async function getSectionIds({ level, semkez, parentId, nameSearch, limit = 200 } = {}) {
-  const params = new URLSearchParams({ limit });
-  if (level !== undefined) params.set('level', level);
-  if (semkez) params.set('semkez', semkez);
-  if (parentId !== undefined) params.set('parent_id', parentId);
-  if (nameSearch) params.set('name_search', nameSearch);
-  const res = await fetch(`${BASE}/api/v1/section/list?${params}`);
-  if (!res.ok) throw new Error(`Section list failed: ${res.status}`);
-  return res.json();
-}
-
-export async function getSection(sectionId) {
-  const res = await fetch(`${BASE}/api/v1/section/${sectionId}/get`);
-  if (!res.ok) throw new Error(`Section fetch failed: ${res.status}`);
-  return res.json();
+export function getCourseSchedule(unitId) {
+  // array of { type, number, hours, hour_type, comment, timeslots: [{ weekday, start_time, end_time, building, floor, room, ... }] }
+  return getJson(`/api/v1/course/get/${unitId}`, 'Schedule fetch');
 }

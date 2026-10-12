@@ -1,0 +1,142 @@
+.pp-search {
+  position: relative;
+}
+
+.pp-input {
+  width: 100%;
+  padding: 0.5rem 0.65rem;
+  font-size: 0.9rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  outline: none;
+}
+
+.pp-input:focus {
+  border-color: var(--blue);
+}
+
+.pp-options {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  width: max(100%, 320px);
+  max-width: calc(100vw - 2 * var(--gutter));
+  max-height: 360px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0.25rem 0;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow);
+  z-index: 30;
+}
+
+.pp-options button,
+.pp-children button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 0.75rem;
+  width: 100%;
+  padding: 0.45rem 0.75rem;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.pp-options button:hover,
+.pp-children button:hover {
+  background: var(--blue-10);
+}
+
+.pp-path {
+  grid-column: 1;
+  font-size: 0.72rem;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pp-name {
+  grid-column: 1;
+  color: var(--text);
+}
+
+.pp-count {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.pp-empty {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.pp-selected {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.pp-crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.15rem 0.35rem;
+  font-size: 0.85rem;
+}
+
+.pp-crumb {
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--blue);
+  cursor: pointer;
+  text-align: left;
+}
+
+.pp-crumb:hover {
+  text-decoration: underline;
+}
+
+.pp-crumb::after {
+  content: '›';
+  margin-left: 0.35rem;
+  color: var(--muted);
+}
+
+.pp-current {
+  font-weight: 600;
+}
+
+.pp-clear,
+.pp-reset {
+  align-self: flex-start;
+  padding: 0;
+  background: none;
+  border: none;
+  font-size: 0.8rem;
+  color: var(--muted);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.pp-children {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-left: 2px solid var(--blue-20);
+}
+
+.pp-children button {
+  padding: 0.35rem 0.6rem;
+}
