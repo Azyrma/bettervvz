@@ -34,9 +34,26 @@ npm test          # search engine checks against the HS26 index
 npm run data      # refresh course data from vvzapi.ch by hand
 ```
 
+## Host it on a Raspberry Pi
+
+`deploy/Caddyfile` serves the build with HTTPS, the fallback for `/courses/<id>` links and the cache headers the offline app relies on.
+
+1. Install Caddy on the Pi: `sudo apt install caddy` (Raspberry Pi OS) or `sudo pacman -S caddy` (Arch Linux ARM).
+2. Build and copy the app from your laptop (replace `pi@raspberrypi` with your Pi):
+   ```bash
+   ssh pi@raspberrypi 'sudo mkdir -p /srv/vvz && sudo chown $USER /srv/vvz'
+   npm run build
+   rsync -a --delete dist/ pi@raspberrypi:/srv/vvz/
+   ```
+3. Copy `deploy/Caddyfile` to `/etc/caddy/Caddyfile` on the Pi, set the site address on its first line, and run `sudo systemctl reload caddy`. For HTTPS, either
+   - use a domain that points to the Pi with ports 80 and 443 forwarded; Caddy then gets a certificate on its own, or
+   - keep it private with [Tailscale](https://tailscale.com) on the Pi and your phone: set the site address to `:80`, enable HTTPS certificates in the Tailscale admin console and run `sudo tailscale serve --bg 80` on the Pi. The app is then at `https://<pi-name>.<tailnet>.ts.net`.
+
+Repeat step 2 whenever you want fresher course indexes; until then, plain searches still pick up newer courses from vvzapi.ch.
+
 ## Install on your phone
 
-Deploy `dist/` to any static host with HTTPS that serves `index.html` for unknown paths (SPA fallback, needed for `/courses/<id>` links), then open the site on your phone:
+Any other static host with HTTPS works too, as long as it serves `index.html` for unknown paths (SPA fallback, needed for `/courses/<id>` links). Open the site on your phone:
 
 - Android (Chrome): menu → **Install app**.
 - iPhone (Safari): Share → **Add to Home Screen**.
