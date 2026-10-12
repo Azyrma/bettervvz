@@ -73,6 +73,7 @@ function toQuery(p, ix) {
     p.open && 'restricted:false',
     p.rmin != null && `cr>=${p.rmin}`,
     ...(p.lect ?? '').split(/\s+/).filter(Boolean).map(w => `l:${quote(w)}`),
+    ...(p.cat ?? '').split(/\s+/).filter(Boolean).map(w => `d:${quote(w)}`),
   ].filter(Boolean).join(' ');
 }
 
@@ -94,7 +95,7 @@ const handlers = {
   },
 
   async search(p) {
-    const [ix, text] = await Promise.all([load(p.semkez), p.desc ? loadText(p.semkez) : null]);
+    const [ix, text] = await Promise.all([load(p.semkez), p.desc || p.cat?.trim() ? loadText(p.semkez) : null]);
     return search(ix, p, text);
   },
 

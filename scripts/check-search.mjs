@@ -35,7 +35,11 @@ assert.equal(search(index, { q: 'programming', lect: 'schwerhoff', limit: 10000 
   search(index, { q: 'programming schwerhoff', limit: 10000 }).total, 'lecturer filter agrees with lecturer words in query');
 assert.ok(search(index, { q: '252-0027', structure: true }).items[0].paths[0][0].includes('Computer Science'), 'structure paths');
 
-const withText = search(index, { q: 'reinforcement', limit: 10000 }, text).total;
+const catalogue = search(index, { q: 'learning', cat: 'reinforcement', limit: 10000 }, text);
+assert.ok(catalogue.total > 0 && catalogue.items.every(u => text[u.id].includes('reinforcement')), 'catalogue data field');
+assert.ok(catalogue.total < search(index, { q: 'learning', limit: 10000 }).total, 'catalogue data narrows the title search');
+
+const withText = search(index, { q: 'reinforcement', desc: true, limit: 10000 }, text).total;
 assert.ok(withText > search(index, { q: 'reinforcement', limit: 10000 }).total, 'description search widens results');
 
 const queries = ['a', 'an', 'ana', 'anal', 'analy', 'analys', 'analysi', 'analysis', 'computer vison', 'hoefler', 'data', 'quantum mech'];

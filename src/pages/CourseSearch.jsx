@@ -37,6 +37,7 @@ function readParams(sp) {
     to: sp.get('to') ?? '',
     room: sp.get('room') ?? '',
     lect: sp.get('lect') ?? '',
+    cat: sp.get('cat') ?? '',
     cmin: num('cmin'),
     cmax: num('cmax'),
     rmin: num('rmin'),
@@ -344,6 +345,7 @@ function CourseSearch() {
     ...p.exam.map(x => ({ label: capitalize(x), clear: { exam: p.exam.filter(y => y !== x) } })),
     ...p.fq.map(f => ({ label: FREQUENCY[f] ?? f, clear: { fq: p.fq.filter(x => x !== f) } })),
     p.lect && { label: `Lecturer: ${p.lect}`, clear: { lect: null } },
+    p.cat && { label: `Catalogue data: ${p.cat}`, clear: { cat: null } },
     p.room && { label: `Room: ${p.room}`, clear: { room: null } },
     (p.days.length > 0 || p.from || p.to) && {
       label: [p.days.map(d => WEEKDAYS[d]).join(', '), (p.from || p.to) && `${p.from || '…'}–${p.to || '…'}`].filter(Boolean).join(' '),
@@ -432,6 +434,12 @@ function CourseSearch() {
         <summary>Lecturer</summary>
         <input type="search" className="text-filter" placeholder="Name — typos are fine" value={p.lect}
           onChange={e => update({ lect: e.target.value })} aria-label="Lecturer name" />
+      </details>
+
+      <details className="filter-group" open={!!p.cat}>
+        <summary>Catalogue data</summary>
+        <input type="search" className="text-filter" placeholder="Words in abstract, content, literature…" value={p.cat}
+          onChange={e => update({ cat: e.target.value })} aria-label="Catalogue data" />
       </details>
 
       <details className="filter-group" open={p.lang.length > 0}>

@@ -157,7 +157,7 @@ function textScore(d, { numbers, qWords, scores, phrase }, text) {
 
 const BIT = {
   text: 1, prog: 2, dep: 4, lvl: 8, lang: 16, type: 32, exam: 64, credits: 128, time: 256,
-  open: 512, rating: 1024, occurs: 2048, fq: 4096, room: 8192, lect: 16384,
+  open: 512, rating: 1024, occurs: 2048, fq: 4096, room: 8192, lect: 16384, cat: 32768,
 };
 const FACETS = {
   dep: d => d.u.dp,
@@ -189,9 +189,10 @@ const SORTS = {
 };
 
 /**
- * p: { q, prog, dep[], lvl[], lang[], type[], exam[], fq[], cmin, cmax, days[], from, to, room, lect,
- *      open, occurs, rmin, structure, sort, limit }
- * text: optional { [unitId]: normalized description } to also match inside descriptions.
+ * p: { q, prog, dep[], lvl[], lang[], type[], exam[], fq[], cmin, cmax, days[], from, to, room, lect, cat,
+ *      desc, open, occurs, rmin, structure, sort, limit }
+ * text: { [unitId]: normalized catalogue data }, needed for `desc` (query words may match it) and `cat`.
+ * `cat` is VVZ's separate "Katalogdaten" field: all its words must appear in the catalogue data.
  */
 export function search(index, p, text = null) {
   const t0 = performance.now();
@@ -204,6 +205,7 @@ export function search(index, p, text = null) {
   const room = p.room ? ` ${normalize(p.room)}` : '';
   // Lecturer filter: every word must match a lecturer name (typos allowed), not just a title word.
   const lect = words(p.lect).map(w => wordScores(index, w));
+  const cat = text ? words(p.cat) : [];
   const facets = Object.fromEntries(Object.keys(FACETS).map(k => [k, {}]));
   const results = [];
 
@@ -211,7 +213,8 @@ export function search(index, p, text = null) {
     const u = d.u;
     let fail = 0;
     let score = 0;
-    if (hasQuery && !(score = textScore(d, query, text))) fail |= BIT.text;
+    if (hasQuery && !(score = textScore(d, query, p.desc ? text : null))) fail |= BIT.text;
+    if (cat.length && !cat.every(w => text[u.id]?.includes(w))) fail |= BIT.cat;
     if (prog && !d.secs.some(id => prog.has(id))) fail |= BIT.prog;
     for (const k in FACETS) if (sets[k].size && !FACETS[k](d).some(v => sets[k].has(v))) fail |= BIT[k];
     if ((p.cmin != null && !(u.c >= p.cmin)) || (p.cmax != null && !(u.c <= p.cmax))) fail |= BIT.credits;
